@@ -135,13 +135,21 @@ class SingleArmAnalyzer(object):
         self.EPS = 1e-7  # numbers smaller than this are regard as zero
         self.MINREWARD = 0 # a lower bound on the set of possible rewards
         self.MAXREWARD = 2 # an upper bound on the set of possible rewards
-        self.DUALSTEP = 0.1 # the discretization step size of dual variable when solving for Whittle's index
+        self.DUALSTEP = 0.05 # the discretization step size of dual variable when solving for Whittle's index
         assert np.all(self.reward_tensor >= self.MINREWARD)
         assert np.all(self.reward_tensor <= self.MAXREWARD)
 
         # variables
         self.y = cp.Variable((self.sspa_size, 2))
         self.dualvar = cp.Parameter(name="dualvar")
+
+        # store some data of the solution.
+        # the values might be outdated. Do not access them unless immediately after solving the correct LP.
+        self.opt_value = None
+        self.avg_reward = None
+        self.opt_subsidy = None
+        self.value_func_relaxed = np.zeros((self.sspa_size,))
+        self.q_func_relaxed = np.zeros((self.sspa_size, 2))
 
     def get_stationary_constraints(self):
         stationary_constrs = []
@@ -178,32 +186,40 @@ class SingleArmAnalyzer(object):
         objective = self.get_objective()
         constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
         problem = cp.Problem(objective, constrs)
-        opt_value = problem.solve()
+        self.opt_value = problem.solve()
         print("--------LP solved, solution as below-------")
-        print("Optimal value ", opt_value)
+        print("Optimal value ", self.opt_value)
         print("Optimal var")
         print(self.y.value)
         print("---------------------------")
-        return (opt_value, self.y.value)
+        return (self.opt_value, self.y.value)
 
-    def y2randomized_policy(self, y_values):
-        pass
+    def solve_LP_Priority(self):
+        objective = self.get_objective()
+        constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
+        problem = cp.Problem(objective, constrs)
+        self.opt_value = problem.solve()
+        # print("Optimal value ", opt_value)
+        # print("Optimal var")
+        # print(self.y.value)
 
-    def y2waterfilling_policy(self, y_values):
-        for state in self.sspa:
-            if (y_values[state, 0] > self.EPS) and (self.y.value[state, 1] < self.EPS):
-                # fluid passive states
-                pass
-            elif (y_values[state, 0] < self.EPS) and (self.y.value[state, 1] > self.EPS):
-                # fluid active states
-                # calculate the action gap...
-                pass
-            elif (y_values[state, 0] > self.EPS) and (self.y.value[state, 1] > self.EPS):
-                # fluid neutral states
-                pass
-            else:
-                # fluid null states
-                pass
+        # hack value function from the dual variables. Later we should rewrite the dual problem explicitly
+        self.avg_reward = constrs[-1].dual_value     # the sign is positive, DO NOT CHANGE IT
+        for i in range(self.sspa_size):
+            self.value_func_relaxed[i] = - constrs[i].dual_value   # the sign is negative, DO NOT CHANGE IT
+        self.opt_subsidy = constrs[self.sspa_size].dual_value  # optimal subsidy for passive actions
+
+        # print("lambda* = ", opt_subsidy)
+        # print("avg_reward = ", avg_reward)
+        # print("value_func = ", self.value_func)
+
+        for i in range(self.sspa_size):
+            for j in range(2):
+                self.q_func_relaxed[i, j] = self.reward_tensor[i, j] + self.opt_subsidy * (j==0) - self.avg_reward + np.sum(self.trans_tensor[i, j, :] * self.value_func_relaxed)
+        # print(self.q_func_relaxed)
+
+        priority_list = np.flip(np.argsort(self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0]))
+        return list(priority_list)
 
     def solve_whittles_policy(self):
         relaxed_objective = self.get_relaxed_objective()
@@ -214,7 +230,6 @@ class SingleArmAnalyzer(object):
         for i, subsidy in enumerate(subsidy_values):
             self.dualvar.value = subsidy
             problem.solve()
-            #print(self.y.value)
             for state in self.sspa:
                 if (self.y.value[state, 0] > self.EPS) and (self.y.value[state, 1] < self.EPS):
                     passive_table[state, i] = 1
@@ -227,12 +242,13 @@ class SingleArmAnalyzer(object):
             else:
                 print("Warning: two states have the same Whittle's index. Breaking ties favoring smaller states")
                 wi2state[approx_wi].append(state)
-        # sort from larger indices to smaller indices
-        sorted(wi2state)
-        # print(wi2state)
+        # sorting from states with large index to small index
+        wi2state_keys_sorted = sorted(wi2state.keys(), reverse=True)
+        wi2state_sorted = {key: wi2state[key] for key in wi2state_keys_sorted}
+        #print(wi2state_sorted)
         priority_list = []
-        for approx_wi in wi2state:
-            priority_list += wi2state[approx_wi]
+        for approx_wi in wi2state_sorted:
+            priority_list += wi2state_sorted[approx_wi]
         # print(priority_list)
         return priority_list, indexable
 
@@ -296,12 +312,55 @@ class PriorityPolicy(object):
         return sa_pair_fracs
 
 
-class WaterfillingPolicy(object):
+class DirectRandomPolicy(object):
+    """
+    The policy that makes decisions only based on the current real states
+    """
     def __init__(self, sspa_size, y, N, budget):
-        pass
+        self.sspa_size = sspa_size
+        self.sspa = np.array(list(range(self.sspa_size)))
+        self.aspa = np.array([0, 1])
+        self.sa_pairs = []
+        for action in self.aspa:
+            self.sa_pairs = self.sa_pairs + [(state, action) for state in self.sspa]
 
-    def get_actions(self, cur_state):
-        pass
+        self.N = N
+        self.budget = budget
+        self.y = y
+        self.EPS = 1e-7
+
+        # get the randomized policy from the solution y
+        self.state_probs = np.sum(self.y, axis=1)
+        self.policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
+        for state in self.sspa:
+            if self.state_probs[state] > self.EPS:
+                self.policy[state, :] = self.y[state, :] / self.state_probs[state]
+            else:
+                self.policy[state, 0] = 1.0
+                self.policy[state, 1] = 0.0
+        assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
+            "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
+
+    def get_actions(self, cur_states):
+        s2indices = {state:None for state in self.sspa}
+        # count the indices of arms in each state
+        for state in self.sspa:
+            s2indices[state] = np.where(cur_states == state)[0]
+        actions = np.zeros((self.N,), dtype=np.int64)
+        for state in self.sspa:
+            actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
+
+        num_requests = np.sum(actions)
+        if num_requests > self.budget:
+            indices_request = np.where(actions==1)[0]
+            request_ignored = np.random.choice(indices_request, int(num_requests - self.budget), replace=False)
+            actions[request_ignored] = 0
+        else:
+            indices_no_request = np.where(actions==0)[0]
+            no_request_pulled = np.random.choice(indices_no_request, int(self.budget - num_requests), replace=False)
+            actions[no_request_pulled] = 1
+
+        return actions
 
 
 class SimuPolicy(object):
@@ -336,6 +395,10 @@ class SimuPolicy(object):
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
     def get_actions(self, cur_states):
+        """
+        :param cur_states: current state, actually not needed
+        :return: actions, virtual_actions
+        """
         # the current implementation does not need to read cur states to generate actions
         # generate virtual actions according to virtual states
         vs2indices = {state:None for state in self.sspa}
@@ -343,26 +406,53 @@ class SimuPolicy(object):
         for state in self.sspa:
             vs2indices[state] = np.where(self.virtual_states == state)[0]
         # generate sample of virtual states using the policy
-        actions = np.zeros((self.N,))
+        virtual_actions = np.zeros((self.N,), dtype=np.int64)
         for state in self.sspa:
-            actions[vs2indices[state]] = np.random.choice(self.aspa, size=len(vs2indices[state]), p=self.policy[state])
+            virtual_actions[vs2indices[state]] = np.random.choice(self.aspa, size=len(vs2indices[state]), p=self.policy[state])
 
         # modify virtual actions into real actions, consider budget constraints; break ties UNIFORMLY at random
-        num_requests = np.sum(actions)
-        if num_requests > self.budget:
-            indices_request = np.where(actions==1)[0]
-            request_ignored = np.random.choice(indices_request, int(num_requests - self.budget), replace=False)
-            actions[request_ignored] = 0
-        else:
-            indices_no_request = np.where(actions==0)[0]
-            no_request_pulled = np.random.choice(indices_no_request, int(self.budget - num_requests), replace=False)
-            actions[no_request_pulled] = 1
 
-        return actions
+        ### (IMPORTANT) Here we can have different ways of select arms to respond to
+        # method 1: we randomly choose arms and flip their actions
+        # actions = virtual_actions.copy()
+        # num_requests = np.sum(actions)
+        # if num_requests > self.budget:
+        #     indices_request = np.where(virtual_actions==1)[0]
+        #     request_ignored = np.random.choice(indices_request, int(num_requests - self.budget), replace=False)
+        #     actions[request_ignored] = 0
+        # else:
+        #     indices_no_request = np.where(actions==0)[0]
+        #     no_request_pulled = np.random.choice(indices_no_request, int(self.budget - num_requests), replace=False)
+        #     actions[no_request_pulled] = 1
 
-    def virtual_step(self, prev_states, cur_states, actions):
+        # method 2: we prioritize "good arms"
+        # then essentially four priority levels:
+        # request+good, request+bad, no_req +bad, no_req +good
+        actions = np.zeros((self.N,))
+        good_arm_mask = cur_states == self.virtual_states
+        priority_levels = [virtual_actions * good_arm_mask, virtual_actions * (1-good_arm_mask),
+                            (1-virtual_actions)*(1-good_arm_mask), (1-virtual_actions)*good_arm_mask]
+        rem_budget = self.budget
+        for i in range(len(priority_levels)):
+            level_i_indices = np.where(priority_levels[i])[0]
+            if rem_budget >= len(level_i_indices):
+                actions[level_i_indices] = 1
+                rem_budget -= len(level_i_indices)
+            else:
+                activate_indices = np.random.choice(level_i_indices, rem_budget, replace=False)
+                actions[activate_indices] = 1
+                rem_budget = 0
+                break
+
+        return actions, virtual_actions
+
+
+    def virtual_step(self, prev_states, cur_states, actions, virtual_actions):
         # simulation with coupling
-        agree_mask = self.virtual_states == prev_states
+        agree_mask = np.all([prev_states == self.virtual_states, actions == virtual_actions], axis=0)
+        # print(prev_states, self.virtual_states)
+        # print(actions, virtual_actions)
+        # print(agree_mask)
         agree_indices = np.where(agree_mask)[0]
         # for those arms whose virtual states agree with real states, update them in the same way as the real states
         self.virtual_states[agree_indices] = cur_states[agree_indices]
@@ -371,8 +461,8 @@ class SimuPolicy(object):
         for sa_pair in self.sa_pairs:
             # find out the indices of disagreement arms whose (virtual state, action) = sa_pair
             sa2indices[sa_pair] = np.where(np.all([self.virtual_states == sa_pair[0],
-                                                   actions == sa_pair[1],
-                                                   1-agree_mask], axis=0))[0]
+                                                   virtual_actions == sa_pair[1],
+                                                   1 - agree_mask], axis=0))[0]
         for sa_pair in self.sa_pairs:
             cur_indices = sa2indices[sa_pair[0], sa_pair[1]]
             self.virtual_states[cur_indices] = np.random.choice(self.sspa, size=len(cur_indices),

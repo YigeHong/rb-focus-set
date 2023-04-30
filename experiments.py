@@ -1,8 +1,10 @@
+import numpy as np
 from matplotlib import pyplot as plt
 from time import time
 import rb_settings
 from discrete_RB import *
 import os
+import pickle
 
 def WIP_experiment_one_point(N, T, act_frac, setting, priority_list, verbose=False, init_states=None):
     # budget = N*act_frac
@@ -200,11 +202,12 @@ def when_is_whittles_same_as_lp():
 
 ### EXPERIMENTS ON EXAMPLES 1, 2, 3
 def compare_policies_experiments():
-    settings = {"Example1": rb_settings.Gast20Example1(),
-                "Example2": rb_settings.Gast20Example2(),
-                "Example3": rb_settings.Gast20Example3()}
+    # settings = {"Example1": rb_settings.Gast20Example1(),
+    #             "Example2": rb_settings.Gast20Example2(),
+    #             "Example3": rb_settings.Gast20Example3()}
+    settings = {"Example2": rb_settings.Gast20Example2()}
     N_low = 100
-    N_high = 1000
+    N_high = 1100
     if N_low < 100:
         N_step = 10
     elif N_low < 1000:
@@ -215,6 +218,7 @@ def compare_policies_experiments():
         N_step = 10000
     Ns = np.arange(N_low, N_high, N_step)
 
+    num_reps = 50
     T = 1000
     act_frac = 0.4  # this should be 0.4. Don't change it.
     special = "mg" # maintaining good arms
@@ -227,32 +231,37 @@ def compare_policies_experiments():
             raise ValueError("the setting is not indexable")
         mf_opt_value, y = analyzer.solve_lp()
         mfrb_avg_reward = WIP_meanfield_simulation(T, act_frac, setting, priority_list, verbose=True)
-        wip_avg_rewards = []
-        drp_avg_rewards = []
-        sp_avg_rewards = []
-        for N in Ns:
-            wip_avg_reward = WIP_experiment_one_point(N, T, act_frac, setting, priority_list, verbose=True)
-            wip_avg_rewards.append(wip_avg_reward)
-            drp_avg_reward = DirectRandomPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True)
-            drp_avg_rewards.append(drp_avg_reward)
-            sp_avg_reward = SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True)
-            sp_avg_rewards.append(sp_avg_reward)
+        wip_avg_rewards = np.nan * np.empty((num_reps, len(Ns)))
+        drp_avg_rewards = np.nan * np.empty((num_reps, len(Ns)))
+        sp_avg_rewards = np.nan * np.empty((num_reps, len(Ns)))
+        for rep in range(num_reps):
+            for i_th_point, N in enumerate(Ns):
+                print("N = {}, rep id = {}".format(N, rep))
+                wip_avg_reward = WIP_experiment_one_point(N, T, act_frac, setting, priority_list, verbose=True)
+                wip_avg_rewards[rep, i_th_point] = wip_avg_reward
+                drp_avg_reward = DirectRandomPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True)
+                drp_avg_rewards[rep, i_th_point] = drp_avg_reward
+                sp_avg_reward = SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True)
+                sp_avg_rewards[rep, i_th_point] = sp_avg_reward
 
-        mfrb_curve = np.array([mfrb_avg_reward]*len(Ns))
-        mf_opt_curve = np.array([mf_opt_value]*len(Ns))
-        fig = plt.figure()
-        plt.title("Average reward of policies in {}.\n T={}, activate fraction={}".format(name, T, act_frac))
-        plt.plot(Ns, wip_avg_rewards, label="WIP")
-        plt.plot(Ns, drp_avg_rewards, label="DRP")
-        plt.plot(Ns, sp_avg_rewards, label="Simu Policy")
-        plt.plot(Ns, mfrb_curve, label="limit cycle")
-        plt.plot(Ns, mf_opt_curve, label="mean field optimal")
-        plt.xlabel("N")
-        plt.ylabel("avg reward")
-        plt.legend()
-        plt.savefig("figs/{}-{}-N{}-{}".format(special, name, N_low, N_high))
-        #plt.show()
-
+            # save the data every repetition
+            with open("fig_data/Formal-{}-N{}-{}".format(name, N_low, N_high), 'wb') as f:
+                setting_and_data = {
+                    "num_reps": num_reps,
+                    "T": T,
+                    "act_frac": act_frac,
+                    "Ns": Ns,
+                    "name": name,
+                    "setting": setting,
+                    "wip_avg_rewards": wip_avg_rewards,
+                    "drp_avg_rewards": drp_avg_rewards,
+                    "sp_avg_rewards": sp_avg_rewards,
+                    "priority_list": priority_list,
+                    "y": y,
+                    "mf_opt_value": mf_opt_value,
+                    "mfrb_avg_reward": mfrb_avg_reward
+                }
+                pickle.dump(setting_and_data, f)
 
 
 # EXPERIMENTS ON EXAMPLE 4
@@ -378,13 +387,65 @@ def compare_simu_tie_breakings():
         plt.savefig("figs/compare-tbs-{}-N{}-{}".format(name, N_low, N_high))
         #plt.show()
 
+def figure_from_file(name, N_low, N_high):
+    with open("fig_data/Formal-{}-N{}-{}".format(name, N_low, N_high), 'rb') as f:
+        setting_and_data = pickle.load(f)
+
+    num_reps = setting_and_data["num_reps"]
+    T = setting_and_data["T"]
+    act_frac = setting_and_data["act_frac"]
+    Ns = setting_and_data["Ns"]
+    name = setting_and_data["name"]
+    setting = setting_and_data["setting"]
+    wip_avg_rewards = setting_and_data["wip_avg_rewards"]
+    drp_avg_rewards = setting_and_data["drp_avg_rewards"]
+    sp_avg_rewards = setting_and_data["sp_avg_rewards"]
+    priority_list = setting_and_data["priority_list"]
+    y = setting_and_data["y"]
+    mf_opt_value = setting_and_data["mf_opt_value"]
+    mfrb_avg_reward = setting_and_data["mfrb_avg_reward"]
+
+    # basic settings
+    fig = plt.figure(constrained_layout=True)
+    num_reps_trues = np.count_nonzero(~np.isnan(wip_avg_rewards), axis=0)
+    # Whittles index policy or LP-Priority
+    wip_means = np.nanmean(wip_avg_rewards, axis=0)
+    wip_yerr = 1.96 * np.nanstd(wip_avg_rewards, axis=0) / np.sqrt(num_reps_trues)
+    plt.errorbar(Ns, wip_means, yerr=wip_yerr, label="WIP/LP-Priority", marker="x", color="b")
+    # direct random policy
+    drp_means = np.nanmean(drp_avg_rewards, axis=0)
+    drp_yerr = 1.96 * np.nanstd(drp_avg_rewards, axis=0) / np.sqrt(num_reps_trues)
+    plt.errorbar(Ns, drp_means, yerr=drp_yerr, label="DRP", marker="v", color="g")
+    # our polity
+    sp_means = np.nanmean(sp_avg_rewards, axis=0)
+    sp_yerr = 1.96 * np.nanstd(sp_avg_rewards, axis=0) / np.sqrt(num_reps_trues)
+    plt.errorbar(Ns, sp_means, yerr=sp_yerr, label="Our policy", marker="o", color="r")
+    # limit cycle and optimal value
+    mfrb_curve = np.array([mfrb_avg_reward]*len(Ns))
+    mf_opt_curve = np.array([mf_opt_value]*len(Ns))
+    plt.plot(Ns, mf_opt_curve, label="LP upper bound", linestyle="--", color="black")
+    plt.plot(Ns, mfrb_curve, label="Limit cycle", linestyle="-.", color="purple")
+    # basic settings
+    plt.rcParams.update({'font.size': 15})
+    #plt.rcParams['text.usetex'] = True
+    plt.title("Average reward of policies in {}.\n T={}, {}={}".format(name, T, r'$\alpha$', act_frac))
+    plt.xlabel("N", fontsize=15)
+    plt.xticks(fontsize=15)
+    plt.ylabel("Avg Reward", fontsize=15)
+    plt.yticks(fontsize=15)
+    plt.ylim([0.093, 0.125])
+    plt.grid()
+    plt.legend(loc="lower right")
+    plt.savefig("figs/Formal-{}-N{}-{}".format(name, N_low, N_high))
+    plt.show()
+
 
 if __name__ == '__main__':
     np.random.seed(0)
     np.set_printoptions(precision=5, suppress=True)
 
     compare_policies_experiments()
-
+    figure_from_file("Example2", 100, 1100)
 
 
     ### To-do list:

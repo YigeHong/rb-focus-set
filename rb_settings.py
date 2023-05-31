@@ -202,7 +202,7 @@ class ConveyorExample(object):
             """
             The purpose of this counterexample is to let the LP-Priority perform poorly 
             To do this, 
-            action script 0 1 1 1 0 0 0 (or it can be longer)
+            action script 1 1 1 1 0 0 0 0 (or it can be longer)
             keep probs_R[i] constant for each i for convenience 
             probs_L should be strictly decreasing on the places where the action script is 1, so that the priority is increasing
             """
@@ -211,7 +211,7 @@ class ConveyorExample(object):
             probs_L[1] = 1.0 #1/6 - 0.01
             probs_L[0] = 0.0 # 1/3 - 0.01
             action_script = np.zeros((sspa_size, ), dtype=np.int64)
-            action_script[1:half_size] = 1
+            action_script[:half_size] = 1
         elif name == "eg4archive1":
             """
             The following set of parameters are producing ridiculous outcomes: 
@@ -231,6 +231,7 @@ class ConveyorExample(object):
             """
             this is a setting that makes LP bad if initialized properly
             sspa = 8
+            do not fix dual variable
             """
             probs_R = np.ones((sspa_size, )) / 6
             probs_L = np.ones((sspa_size, )) / (2+0.1*sspa_size) # this is a bug, sspa_size should be arange(0, sspa_size)

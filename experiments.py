@@ -22,9 +22,10 @@ def WIP_experiment_one_point(N, T, act_frac, setting, priority_list, verbose=Fal
         actions = policy.get_actions(cur_states)
         instant_reward = rb.step(actions)
         total_reward += instant_reward
-        # print(rb.get_s_fracs())
-        # if t > 200:
-        #     exit()
+        # if True:#N == 1000:
+        print(rb.get_s_fracs())
+        if t > 800:
+            exit()
     toc = time()
     rb_avg_reward = total_reward / T
     if verbose:
@@ -34,8 +35,8 @@ def WIP_experiment_one_point(N, T, act_frac, setting, priority_list, verbose=Fal
     return rb_avg_reward
 
 
-def WIP_meanfield_simulation(T, act_frac, setting, priority_list, verbose=False):
-    mfrb = MeanFieldRB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor)
+def WIP_meanfield_simulation(T, act_frac, setting, priority_list, verbose=False, init_state_fracs=None):
+    mfrb = MeanFieldRB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, init_state_fracs)
     policy = PriorityPolicy(setting.sspa_size, priority_list, N=None, act_frac=act_frac)
 
     total_reward = 0
@@ -267,56 +268,92 @@ def compare_policies_experiments():
 # EXPERIMENTS ON EXAMPLE 4
 def compare_policies_conveyor_example():
     sspa_size = 8
-    setting_code = "eg4archive2"
+    setting_code = "eg4action-gap-tb"
     probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(setting_code, sspa_size)
     setting = rb_settings.ConveyorExample(sspa_size, probs_L, probs_R, action_script, suggest_act_frac)
     rb_settings.print_bandit(setting)
-    N_low = 100
-    N_high = 1000
-    Ns = np.arange(N_low, N_high+100, 100)
+
+    num_reps = 50
+    N_low = 1000
+    N_high = 1100
+    Ns = np.arange(N_low, N_high, 100)
     T = 1000
     act_frac = setting.suggest_act_frac
     init_method = "bad"  # or "bad", "random", or "evenly"
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
-    opt_value, y = analyzer.solve_lp()
-    priority_list = analyzer.solve_LP_Priority()
-    #priority_list = [1,2,3,4,0,9,8,7,6,5]
+    mf_opt_value, y = analyzer.solve_lp()
+    # we manually fix the optimal dual variable to be 0
+    priority_list = analyzer.solve_LP_Priority(fixed_dual=0)
     print("priority list = ", priority_list)
-    mf_opt_curve = np.array([opt_value]*len(Ns))
+    if init_method == "bad":
+        init_state_fracs = np.zeros((sspa_size,))
+        init_state_fracs[1] = 1/3
+        init_state_fracs[2] = 2/3
+    else:
+        init_state_fracs = np.ones((sspa_size,)) / sspa_size
+    mfrb_avg_reward = WIP_meanfield_simulation(T, act_frac, setting, priority_list, verbose=True, init_state_fracs=init_state_fracs)
+    print("mean field limit = ", mfrb_avg_reward)
 
-    drp_rewards = []
-    simup_rewards = []
-    lp_priority_rewards = []
-    for N in Ns:
-        init_states = np.zeros((N, ), dtype=np.int64)
-        if init_method == "bad":
-            init_states[0:int(N/3)] = 2
-            init_states[int(N/3):N] = 3
-        elif init_method == "random":
-            init_states = np.random.choice(np.arange(0, sspa_size), N, replace=True)
-        elif init_method == "evenly":
-            for i in range(N):
-                init_states[i] = i % sspa_size
-        else:
-            raise NotImplementedError
-        reward = DirectRandomPolicy_experiment_one_point(N, T,  act_frac, setting, y, verbose=True, init_states=init_states)
-        drp_rewards.append(reward)
-        reward = SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
-        simup_rewards.append(reward)
-        reward = WIP_experiment_one_point(N, T, act_frac, setting, priority_list=priority_list, verbose=True, init_states=init_states)
-        lp_priority_rewards.append(reward)
-    plt.figure()
-    plt.title("My example. Average reward of policies in Conveyor Example.\n T={}, activate fraction={}".format(T, act_frac))
-    plt.plot(Ns, drp_rewards, label="DRP")
-    plt.plot(Ns, lp_priority_rewards, label="LP")
-    plt.plot(Ns, simup_rewards, label="Simu_policy")
-    plt.plot(Ns, mf_opt_curve, label="mf-opt")
-    plt.xlabel("N")
-    plt.ylabel("avg reward")
-    plt.legend()
-    plt.savefig("figs/{}-size{}-init_{}-N{}-{}".format(setting_code, sspa_size, init_method, N_low, N_high))
-    plt.show()
+    lp_avg_rewards = np.nan * np.empty((num_reps, len(Ns)))
+    drp_avg_rewards = np.nan * np.empty((num_reps, len(Ns)))
+    sp_avg_rewards = np.nan * np.empty((num_reps, len(Ns)))
+    for rep in range(num_reps):
+        for i_th_point, N in enumerate(Ns):
+            print("N = {}, rep id = {}".format(N, rep))
+            init_states = np.zeros((N, ), dtype=np.int64)
+            if init_method == "bad":
+                init_states[0:int(N/3)] = 1
+                init_states[int(N/3):N] = 2
+            elif init_method == "random":
+                init_states = np.random.choice(np.arange(0, sspa_size), N, replace=True)
+            elif init_method == "evenly":
+                for i in range(N):
+                    init_states[i] = i % sspa_size
+            else:
+                raise NotImplementedError
+            # reward = DirectRandomPolicy_experiment_one_point(N, T,  act_frac, setting, y, verbose=True, init_states=init_states)
+            # drp_avg_rewards[rep, i_th_point] = reward
+            # reward = SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
+            # sp_avg_rewards[rep, i_th_point] = reward
+            reward = WIP_experiment_one_point(N, T, act_frac, setting, priority_list=priority_list, verbose=True, init_states=init_states)
+            lp_avg_rewards[rep, i_th_point] = reward
+
+        with open("fig_data/Formal-{}-N{}-{}".format(setting_code, N_low, N_high), 'wb') as f:
+            setting_and_data = {
+                "num_reps": num_reps,
+                "T": T,
+                "act_frac": act_frac,
+                "Ns": Ns,
+                "name": "Example4",
+                "setting_code": setting_code,
+                "init_method": init_method,
+                "setting": setting,
+                "lp_avg_rewards": lp_avg_rewards,
+                "drp_avg_rewards": drp_avg_rewards,
+                "sp_avg_rewards": sp_avg_rewards,
+                "priority_list": priority_list,
+                "y": y,
+                "mf_opt_value": mf_opt_value,
+                "mfrb_avg_reward": mfrb_avg_reward
+            }
+            pickle.dump(setting_and_data, f)
+
+    # plt.figure()
+    # plt.title("My example. Average reward of policies in Conveyor Example.\n T={}, activate fraction={}".format(T, act_frac))
+    # plt.plot(Ns, drp_rewards, label="DRP")
+    # plt.plot(Ns, lp_priority_rewards, label="LP")
+    # plt.plot(Ns, simup_rewards, label="Simu_policy")
+    #
+    # mf_opt_curve = np.array([opt_value]*len(Ns))
+    # mfrb_curve = np.array([mfrb_avg_reward]*len(Ns))
+    # plt.plot(Ns, mf_opt_curve, label="mf-opt")
+    # plt.plot(Ns, mfrb_curve, label="ode limit")
+    # plt.xlabel("N")
+    # plt.ylabel("avg reward")
+    # plt.legend()
+    # plt.savefig("figs/{}-size{}-init_{}-N{}-{}".format(setting_code, sspa_size, init_method, N_low, N_high))
+    # plt.show()
 
 
 # EXPERIMENTS ON TIE BREAKING RULES
@@ -387,9 +424,11 @@ def compare_simu_tie_breakings():
         plt.savefig("figs/compare-tbs-{}-N{}-{}".format(name, N_low, N_high))
         #plt.show()
 
-def figure_from_file(name, N_low, N_high):
-    with open("fig_data/Formal-{}-N{}-{}".format(name, N_low, N_high), 'rb') as f:
+def figure_from_file(fname, N_low, N_high, yrange, lgloc, need_DRP):
+    with open("fig_data/Formal-{}-N{}-{}".format(fname, N_low, N_high), 'rb') as f:
         setting_and_data = pickle.load(f)
+
+    has_wip = "wip_avg_rewards" in setting_and_data
 
     num_reps = setting_and_data["num_reps"]
     T = setting_and_data["T"]
@@ -397,7 +436,10 @@ def figure_from_file(name, N_low, N_high):
     Ns = setting_and_data["Ns"]
     name = setting_and_data["name"]
     setting = setting_and_data["setting"]
-    wip_avg_rewards = setting_and_data["wip_avg_rewards"]
+    if has_wip:
+        wip_avg_rewards = setting_and_data["wip_avg_rewards"]
+    else:
+        lp_avg_rewards = setting_and_data["lp_avg_rewards"]
     drp_avg_rewards = setting_and_data["drp_avg_rewards"]
     sp_avg_rewards = setting_and_data["sp_avg_rewards"]
     priority_list = setting_and_data["priority_list"]
@@ -407,35 +449,41 @@ def figure_from_file(name, N_low, N_high):
 
     # basic settings
     fig = plt.figure(constrained_layout=True)
-    num_reps_trues = np.count_nonzero(~np.isnan(wip_avg_rewards), axis=0)
-    # Whittles index policy or LP-Priority
-    wip_means = np.nanmean(wip_avg_rewards, axis=0)
-    wip_yerr = 1.96 * np.nanstd(wip_avg_rewards, axis=0) / np.sqrt(num_reps_trues)
-    plt.errorbar(Ns, wip_means, yerr=wip_yerr, label="WIP/LP-Priority", marker="x", color="b")
-    # direct random policy
-    drp_means = np.nanmean(drp_avg_rewards, axis=0)
-    drp_yerr = 1.96 * np.nanstd(drp_avg_rewards, axis=0) / np.sqrt(num_reps_trues)
-    plt.errorbar(Ns, drp_means, yerr=drp_yerr, label="DRP", marker="v", color="g")
-    # our polity
+    num_reps_trues = np.count_nonzero(~np.isnan(sp_avg_rewards), axis=0)
+    # our policy
     sp_means = np.nanmean(sp_avg_rewards, axis=0)
     sp_yerr = 1.96 * np.nanstd(sp_avg_rewards, axis=0) / np.sqrt(num_reps_trues)
-    plt.errorbar(Ns, sp_means, yerr=sp_yerr, label="Our policy", marker="o", color="r")
+    plt.errorbar(Ns, sp_means, yerr=sp_yerr, label=r"Our policy: FTVA($\overline{\pi}^*$)", marker="o", color="r")
+    # direct random policy
+    if need_DRP:
+        drp_means = np.nanmean(drp_avg_rewards, axis=0)
+        drp_yerr = 1.96 * np.nanstd(drp_avg_rewards, axis=0) / np.sqrt(num_reps_trues)
+        plt.errorbar(Ns, drp_means, yerr=drp_yerr, label="Random tie-breaking", marker="v", color="g")
+    # Whittles index policy or LP-Priority
+    if has_wip:
+        wip_means = np.nanmean(wip_avg_rewards, axis=0)
+        wip_yerr = 1.96 * np.nanstd(wip_avg_rewards, axis=0) / np.sqrt(num_reps_trues)
+        plt.errorbar(Ns, wip_means, yerr=wip_yerr, label="Whittle Index/LP-Priority", marker="x", color="b")
+    else:
+        lp_means = np.nanmean(lp_avg_rewards, axis=0)
+        lp_yerr = 1.96 * np.nanstd(lp_avg_rewards, axis=0) / np.sqrt(num_reps_trues)
+        plt.errorbar(Ns, lp_means, yerr=lp_yerr, label="LP-Priority", marker="x", color="b")
     # limit cycle and optimal value
     mfrb_curve = np.array([mfrb_avg_reward]*len(Ns))
     mf_opt_curve = np.array([mf_opt_value]*len(Ns))
-    plt.plot(Ns, mf_opt_curve, label="LP upper bound", linestyle="--", color="black")
-    plt.plot(Ns, mfrb_curve, label="Limit cycle", linestyle="-.", color="purple")
+    plt.plot(Ns, mf_opt_curve, label="Upper bound", linestyle="--", color="black")
+    plt.plot(Ns, mfrb_curve, linestyle="-.", color="purple") # "Mean field limit", but we don't show label
     # basic settings
-    plt.rcParams.update({'font.size': 15})
+    plt.rcParams.update({'font.size': 20})
     #plt.rcParams['text.usetex'] = True
-    plt.title("Average reward of policies in {}.\n T={}, {}={}".format(name, T, r'$\alpha$', act_frac))
-    plt.xlabel("N", fontsize=15)
-    plt.xticks(fontsize=15)
-    plt.ylabel("Avg Reward", fontsize=15)
-    plt.yticks(fontsize=15)
-    plt.ylim([0.093, 0.125])
+    #plt.title("Average reward of policies in {}.\n T={}, {}={}".format(name, T, r'$\alpha$', act_frac))
+    plt.xlabel("N", fontsize=20)
+    plt.xticks(fontsize=20)
+    plt.ylabel("Avg Reward", fontsize=20)
+    plt.yticks(fontsize=20)
+    plt.ylim(yrange)
     plt.grid()
-    plt.legend(loc="lower right")
+    plt.legend(loc=lgloc)
     plt.savefig("figs/Formal-{}-N{}-{}".format(name, N_low, N_high))
     plt.show()
 
@@ -444,22 +492,17 @@ if __name__ == '__main__':
     np.random.seed(0)
     np.set_printoptions(precision=5, suppress=True)
 
-    compare_policies_experiments()
-    figure_from_file("Example2", 100, 1100)
+    if not os.path.exists("figs"):
+        os.makedirs("figs")
+    if not os.path.exists("fig_data"):
+        os.makedirs("fig_data")
+    compare_policies_conveyor_example()
+    #figure_from_file("Example2", 100, 1100, (0.093, 0.125), "lower right", need_DRP=False)
+    #figure_from_file("eg4action-gap-tb", 100, 1100, (0, 0.014), "right", need_DRP=True)
 
 
-    ### To-do list:
-    ### need to have a confidence interval by repeating multiple times
+
+
+    ### To check:
     ### rewrite the priority policy part with explicit code.
-
-    ### what is the RIGHT implementation of action-gap based tie breaking? The subsidy is not unique.
-    #  0 subsidy is not convincing; other arbitrary subsidies are not good either.
-    # hopefully, break DRP and LP-Priority for all legal subsidies. Possible things to try:
-    # initialize in bad states 0,1,2
-    # action script = 11110000 instead of 01110000 so that we can break DRP
-    # decrease prob_R[0] if we use action script 01110000
-
-
-    #  manually control the subsidy and do a set of experiments
-    # fix the bug of not accepting fractional budget
-
+    ### non-unique dual variable for example 4?

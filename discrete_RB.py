@@ -84,7 +84,7 @@ class MeanFieldRB(object):
     RB with infinite many arms that transition according to the mean-field dynamics
     states are
     """
-    def __init__(self, sspa_size, trans_tensor, reward_tensor):
+    def __init__(self, sspa_size, trans_tensor, reward_tensor, init_state_fracs=None):
         self.sspa_size = sspa_size
         self.sspa = np.array(list(range(self.sspa_size)))
         self.aspa_size = 2
@@ -97,8 +97,11 @@ class MeanFieldRB(object):
         self.EPS = 1e-7  # numbers smaller than this are regard as zero
 
         # states are represented by the distribution of the arms
-        self.state_fracs = np.zeros((self.sspa_size,))
-        self.state_fracs[0] = 1
+        if init_state_fracs is None:
+            self.state_fracs = np.zeros((self.sspa_size,))
+            self.state_fracs[0] = 1
+        else:
+            self.state_fracs = init_state_fracs.copy()
 
     def step(self, sa_pair_fracs):
         """
@@ -124,18 +127,18 @@ class MeanFieldRB(object):
 class SingleArmAnalyzer(object):
     def __init__(self, sspa_size, trans_tensor, reward_tensor, act_frac):
         # problem parameters
-        self.sspa_size = sspa_size
-        self.sspa = np.array(list(range(self.sspa_size)))
-        self.aspa_size = 2
-        self.aspa = np.array(list(range(self.aspa_size)))
-        self.sa_pairs = []
+        self.sspa_size = sspa_size   # state-space size
+        self.sspa = np.array(list(range(self.sspa_size)))  # state space
+        self.aspa_size = 2   # action-space size
+        self.aspa = np.array(list(range(self.aspa_size)))  # action space
+        self.sa_pairs = []   # all possible combinations of (state,action), defined for the convenience of iteration
         for action in self.aspa:
             self.sa_pairs = self.sa_pairs + [(state, action) for state in self.sspa]
-        self.trans_tensor = trans_tensor
-        self.reward_tensor = reward_tensor
+        self.trans_tensor = trans_tensor   # the transition kernel P, dimensions (state, action, next_state). See the examples defined in "rb_settings.py".
+        self.reward_tensor = reward_tensor   # the reward function r, dimensions (state, action). See the examples defined in "rb_settings.py".
         self.act_frac = act_frac
         # some constants
-        self.EPS = 1e-7  # numbers smaller than this are regard as zero
+        self.EPS = 1e-7  # any numbers smaller than this are regard as zero
         self.MINREWARD = 0 # a lower bound on the set of possible rewards
         self.MAXREWARD = 2 # an upper bound on the set of possible rewards
         self.DUALSTEP = 0.05 # the discretization step size of dual variable when solving for Whittle's index
@@ -144,10 +147,10 @@ class SingleArmAnalyzer(object):
 
         # variables
         self.y = cp.Variable((self.sspa_size, 2))
-        self.dualvar = cp.Parameter(name="dualvar")
+        self.dualvar = cp.Parameter(name="dualvar")  # the subsidy parameter for solving Whittle's index policy
 
-        # store some data of the solution.
-        # the values might be outdated. Do not access them unless immediately after solving the correct LP.
+        # store some data of the solution, only needed for solving the LP-Priority policy
+        # the values might change, so they are not safe to access unless immediately after solving the LP.
         self.opt_value = None
         self.avg_reward = None
         self.opt_subsidy = None
@@ -157,8 +160,6 @@ class SingleArmAnalyzer(object):
     def get_stationary_constraints(self):
         stationary_constrs = []
         for cur_s in self.sspa:
-            # for sa_pair in self.sa_pairs:
-            #     m_s += self.y[sa_pair[0], sa_pair[1]] * self.trans_tensor[sa_pair[0], sa_pair[1], cur_s]
             m_s = cp.sum(cp.multiply(self.y, self.trans_tensor[:,:,cur_s]))
             stationary_constrs.append(m_s == cp.sum(self.y[cur_s, :]))
         return stationary_constrs
@@ -169,6 +170,7 @@ class SingleArmAnalyzer(object):
         return budget_constrs
 
     def get_basic_constraints(self):
+        # the constraints that make sure we solve a probability distribution
         basic_constrs = []
         basic_constrs.append(self.y >= 1e-8)
         basic_constrs.append(cp.sum(self.y) == 1)
@@ -179,6 +181,7 @@ class SingleArmAnalyzer(object):
         return objective
 
     def get_relaxed_objective(self):
+        # the objective for the relaxed problem
         subsidy_reward_1 = self.reward_tensor[:,1]
         subsidy_reward_0 = self.reward_tensor[:,0] + self.dualvar
         relaxed_objective = cp.Maximize(cp.sum(cp.multiply(self.y[:,1], subsidy_reward_1))
@@ -197,10 +200,15 @@ class SingleArmAnalyzer(object):
         print("---------------------------")
         return (self.opt_value, self.y.value)
 
-    def solve_LP_Priority(self):
+    def solve_LP_Priority(self, fixed_dual=None):
         ##### THIS IMPLEMENTATION COULD HAVE A BUG!!! DUAL VARIABLE IS NOT RELIABLE. NEED TO REWRITE ALL THIS.
-        objective = self.get_objective()
-        constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
+        if fixed_dual is None:
+            objective = self.get_objective()
+            constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
+        else:
+            self.dualvar = fixed_dual
+            objective = self.get_relaxed_objective()
+            constrs = self.get_stationary_constraints() + self.get_basic_constraints()
         problem = cp.Problem(objective, constrs)
         self.opt_value = problem.solve(verbose=False)
         # print("Optimal value ", opt_value)
@@ -208,10 +216,16 @@ class SingleArmAnalyzer(object):
         # print(self.y.value)
 
         # hack value function from the dual variables. Later we should rewrite the dual problem explicitly
+        # average reward is the dual variable of "sum to 1" constraint
         self.avg_reward = constrs[-1].dual_value     # the sign is positive, DO NOT CHANGE IT
         for i in range(self.sspa_size):
+            # value function is the dual of stationary constraint
             self.value_func_relaxed[i] = - constrs[i].dual_value   # the sign is negative, DO NOT CHANGE IT
-        self.opt_subsidy = constrs[self.sspa_size].dual_value  # optimal subsidy for passive actions
+        if fixed_dual is None:
+            # optimal subsidy is the dual of budget constraint
+            self.opt_subsidy = constrs[self.sspa_size].dual_value  # optimal subsidy for passive actions
+        else:
+            self.opt_subsidy = fixed_dual
 
         print("lambda* = ", self.opt_subsidy)
         print("avg_reward = ", self.avg_reward)
@@ -227,11 +241,12 @@ class SingleArmAnalyzer(object):
         return list(priority_list)
 
     def solve_whittles_policy(self):
+        # solve a set of relaxed problem with different subsidy values, and find out the Whittle's index
         relaxed_objective = self.get_relaxed_objective()
         constrs = self.get_stationary_constraints() + self.get_basic_constraints()
         problem = cp.Problem(relaxed_objective, constrs)
         subsidy_values = np.arange(self.MINREWARD, self.MAXREWARD, self.DUALSTEP)
-        passive_table = np.zeros((self.sspa_size, len(subsidy_values)))
+        passive_table = np.zeros((self.sspa_size, len(subsidy_values))) # each row is a state, each column is a dual value
         for i, subsidy in enumerate(subsidy_values):
             self.dualvar.value = subsidy
             problem.solve()
@@ -241,7 +256,7 @@ class SingleArmAnalyzer(object):
         wi2state = {}
         for state in self.sspa:
             approx_wi = np.where(passive_table[state, :])[0][0]  # find the smallest subsidy such that state becomes passive
-            indexable = np.all(passive_table[state, approx_wi:] == 1) #, "not indexable"  # check indexability
+            indexable = np.all(passive_table[state, approx_wi:] == 1)  # check indexability
             if approx_wi not in wi2state:
                 wi2state[approx_wi] = [state]
             else:
@@ -431,18 +446,17 @@ class SimuPolicy(object):
         # generate budget using randomized rounding
         budget = int(self.N * self.act_frac)
         budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding
-        # the current implementation does not need to read cur states to generate actions
         # generate virtual actions according to virtual states
         vs2indices = {state:None for state in self.sspa}
-        # count the indices of arms in each state
+        # find the indices of arms that are in each virtual state
         for state in self.sspa:
             vs2indices[state] = np.where(self.virtual_states == state)[0]
-        # generate sample of virtual states using the policy
+        # generate virtual actions using the policy
         virtual_actions = np.zeros((self.N,), dtype=np.int64)
         for state in self.sspa:
             virtual_actions[vs2indices[state]] = np.random.choice(self.aspa, size=len(vs2indices[state]), p=self.policy[state])
 
-        # modify virtual actions into real actions, consider budget constraints; break ties UNIFORMLY at random
+        # Below we modify virtual actions into real actions, so that they satisfy the budget constraint
 
         # several different tie breaking rules
         if (tb_rule is None) or (tb_rule == "goodness"):
@@ -455,7 +469,7 @@ class SimuPolicy(object):
                                 (1-virtual_actions)*(1-good_arm_mask), (1-virtual_actions)*good_arm_mask]
             rem_budget = budget
             for i in range(len(priority_levels)):
-                level_i_indices = np.where(priority_levels[i])[0]
+                level_i_indices = np.where(priority_levels[i])[0] # find the indices of the arms whose priority is in level i.
                 if rem_budget >= len(level_i_indices):
                     actions[level_i_indices] = 1
                     rem_budget -= len(level_i_indices)
@@ -534,16 +548,13 @@ class SimuPolicy(object):
     def virtual_step(self, prev_states, cur_states, actions, virtual_actions):
         # simulation with coupling
         agree_mask = np.all([prev_states == self.virtual_states, actions == virtual_actions], axis=0)
-        # print(prev_states, self.virtual_states)
-        # print(actions, virtual_actions)
-        # print(agree_mask)
         agree_indices = np.where(agree_mask)[0]
-        # for those arms whose virtual states agree with real states, update them in the same way as the real states
+        # for those arms whose virtual state-action pairs agree with real ones (good arms), couple the next states
         self.virtual_states[agree_indices] = cur_states[agree_indices]
 
         sa2indices = {sa_pair:[] for sa_pair in self.sa_pairs}
         for sa_pair in self.sa_pairs:
-            # find out the indices of disagreement arms whose (virtual state, action) = sa_pair
+            # find out the indices of the bad arms whose (virtual state, action) = sa_pair
             sa2indices[sa_pair] = np.where(np.all([self.virtual_states == sa_pair[0],
                                                    virtual_actions == sa_pair[1],
                                                    1 - agree_mask], axis=0))[0]

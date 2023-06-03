@@ -139,11 +139,11 @@ class SingleArmAnalyzer(object):
         self.act_frac = act_frac
         # some constants
         self.EPS = 1e-7  # any numbers smaller than this are regard as zero
-        self.MINREWARD = 0 # a lower bound on the set of possible rewards
-        self.MAXREWARD = 2 # an upper bound on the set of possible rewards
+        min_reward = np.min(self.reward_tensor)
+        max_reward = np.max(self.reward_tensor)
         self.DUALSTEP = 0.05 # the discretization step size of dual variable when solving for Whittle's index
-        assert np.all(self.reward_tensor >= self.MINREWARD)
-        assert np.all(self.reward_tensor <= self.MAXREWARD)
+        self.MINSUBSIDY = - (max_reward - min_reward) - self.DUALSTEP # a lower bound on the set of possible subsidies
+        self.MAXSUBSIDY = (max_reward - min_reward) + self.DUALSTEP  # an upper bound on the set of possible subsidies
 
         # variables
         self.y = cp.Variable((self.sspa_size, 2))
@@ -245,7 +245,7 @@ class SingleArmAnalyzer(object):
         relaxed_objective = self.get_relaxed_objective()
         constrs = self.get_stationary_constraints() + self.get_basic_constraints()
         problem = cp.Problem(relaxed_objective, constrs)
-        subsidy_values = np.arange(self.MINREWARD, self.MAXREWARD, self.DUALSTEP)
+        subsidy_values = np.arange(self.MINSUBSIDY, self.MAXSUBSIDY, self.DUALSTEP)
         passive_table = np.zeros((self.sspa_size, len(subsidy_values))) # each row is a state, each column is a dual value
         for i, subsidy in enumerate(subsidy_values):
             self.dualvar.value = subsidy

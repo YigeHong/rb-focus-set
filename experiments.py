@@ -23,9 +23,9 @@ def WIP_experiment_one_point(N, T, act_frac, setting, priority_list, verbose=Fal
         instant_reward = rb.step(actions)
         total_reward += instant_reward
         # if True:#N == 1000:
-        print(rb.get_s_fracs())
-        if t > 800:
-            exit()
+        # print(rb.get_s_fracs())
+        # if t > 800:
+        #     exit()
     toc = time()
     rb_avg_reward = total_reward / T
     if verbose:
@@ -266,7 +266,14 @@ def compare_policies_experiments():
 
 
 # EXPERIMENTS ON EXAMPLE 4
-def compare_policies_conveyor_example():
+def compare_policies_conveyor_example(init_method):
+    """
+    :param init_method: init_method = "bad", "random", or "evenly" or "global".
+        "bad" concentrate on state 1 and 2; "random" independently uniformly sample each arm;
+        "evenly" makes sure each states takes exactly 1/8 fraction (up to integer effect);
+        "global" uniformly sample an initial empirical distribution for each replication
+    :return:
+    """
     sspa_size = 8
     setting_code = "eg4action-gap-tb"
     probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(setting_code, sspa_size)
@@ -274,31 +281,38 @@ def compare_policies_conveyor_example():
     rb_settings.print_bandit(setting)
 
     num_reps = 50
-    N_low = 1000
+    N_low = 100
     N_high = 1100
     Ns = np.arange(N_low, N_high, 100)
     T = 1000
     act_frac = setting.suggest_act_frac
-    init_method = "bad"  # or "bad", "random", or "evenly"
+
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     mf_opt_value, y = analyzer.solve_lp()
     # we manually fix the optimal dual variable to be 0
     priority_list = analyzer.solve_LP_Priority(fixed_dual=0)
     print("priority list = ", priority_list)
-    if init_method == "bad":
-        init_state_fracs = np.zeros((sspa_size,))
-        init_state_fracs[1] = 1/3
-        init_state_fracs[2] = 2/3
-    else:
-        init_state_fracs = np.ones((sspa_size,)) / sspa_size
-    mfrb_avg_reward = WIP_meanfield_simulation(T, act_frac, setting, priority_list, verbose=True, init_state_fracs=init_state_fracs)
-    print("mean field limit = ", mfrb_avg_reward)
 
     lp_avg_rewards = np.nan * np.empty((num_reps, len(Ns)))
     drp_avg_rewards = np.nan * np.empty((num_reps, len(Ns)))
     sp_avg_rewards = np.nan * np.empty((num_reps, len(Ns)))
     for rep in range(num_reps):
+        if init_method == "bad":
+            init_state_fracs = np.zeros((sspa_size,))
+            init_state_fracs[1] = 1/3
+            init_state_fracs[2] = 2/3
+        elif init_method in ["evenly", "random"]:
+            init_state_fracs = np.ones((sspa_size,)) / sspa_size
+        elif init_method == "global":
+            init_state_fracs = np.random.uniform(0, 1, size=(sspa_size,))
+            init_state_fracs = init_state_fracs / np.sum(init_state_fracs)
+        else:
+            raise NotImplementedError
+        mfrb_avg_reward = WIP_meanfield_simulation(T, act_frac, setting, priority_list, verbose=False, init_state_fracs=init_state_fracs)
+        print("init state fracs = ", init_state_fracs)
+        print(sum(init_state_fracs))
+        print("mean field limit = ", mfrb_avg_reward)
         for i_th_point, N in enumerate(Ns):
             print("N = {}, rep id = {}".format(N, rep))
             init_states = np.zeros((N, ), dtype=np.int64)
@@ -310,16 +324,21 @@ def compare_policies_conveyor_example():
             elif init_method == "evenly":
                 for i in range(N):
                     init_states[i] = i % sspa_size
+            elif init_method == "global":
+                for s in range(sspa_size):
+                    start_ind = int(N * np.sum(init_state_fracs[0:s]))
+                    end_ind = int(N * np.sum(init_state_fracs[0:(s+1)]))
+                    init_states[start_ind: end_ind] = s
             else:
                 raise NotImplementedError
-            # reward = DirectRandomPolicy_experiment_one_point(N, T,  act_frac, setting, y, verbose=True, init_states=init_states)
-            # drp_avg_rewards[rep, i_th_point] = reward
-            # reward = SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
-            # sp_avg_rewards[rep, i_th_point] = reward
+            reward = DirectRandomPolicy_experiment_one_point(N, T,  act_frac, setting, y, verbose=True, init_states=init_states)
+            drp_avg_rewards[rep, i_th_point] = reward
+            reward = SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
+            sp_avg_rewards[rep, i_th_point] = reward
             reward = WIP_experiment_one_point(N, T, act_frac, setting, priority_list=priority_list, verbose=True, init_states=init_states)
             lp_avg_rewards[rep, i_th_point] = reward
 
-        with open("fig_data/Formal-{}-N{}-{}".format(setting_code, N_low, N_high), 'wb') as f:
+        with open("fig_data/Formal-{}-N{}-{}-{}".format(setting_code, N_low, N_high, init_method), 'wb') as f:
             setting_and_data = {
                 "num_reps": num_reps,
                 "T": T,
@@ -338,22 +357,6 @@ def compare_policies_conveyor_example():
                 "mfrb_avg_reward": mfrb_avg_reward
             }
             pickle.dump(setting_and_data, f)
-
-    # plt.figure()
-    # plt.title("My example. Average reward of policies in Conveyor Example.\n T={}, activate fraction={}".format(T, act_frac))
-    # plt.plot(Ns, drp_rewards, label="DRP")
-    # plt.plot(Ns, lp_priority_rewards, label="LP")
-    # plt.plot(Ns, simup_rewards, label="Simu_policy")
-    #
-    # mf_opt_curve = np.array([opt_value]*len(Ns))
-    # mfrb_curve = np.array([mfrb_avg_reward]*len(Ns))
-    # plt.plot(Ns, mf_opt_curve, label="mf-opt")
-    # plt.plot(Ns, mfrb_curve, label="ode limit")
-    # plt.xlabel("N")
-    # plt.ylabel("avg reward")
-    # plt.legend()
-    # plt.savefig("figs/{}-size{}-init_{}-N{}-{}".format(setting_code, sspa_size, init_method, N_low, N_high))
-    # plt.show()
 
 
 # EXPERIMENTS ON TIE BREAKING RULES
@@ -424,8 +427,8 @@ def compare_simu_tie_breakings():
         plt.savefig("figs/compare-tbs-{}-N{}-{}".format(name, N_low, N_high))
         #plt.show()
 
-def figure_from_file(fname, N_low, N_high, yrange, lgloc, need_DRP):
-    with open("fig_data/Formal-{}-N{}-{}".format(fname, N_low, N_high), 'rb') as f:
+def figure_from_file(fname, N_low, N_high, init_method, yrange, lgloc, need_DRP):
+    with open("fig_data/Formal-{}-N{}-{}-{}".format(fname, N_low, N_high, init_method), 'rb') as f:
         setting_and_data = pickle.load(f)
 
     has_wip = "wip_avg_rewards" in setting_and_data
@@ -484,7 +487,7 @@ def figure_from_file(fname, N_low, N_high, yrange, lgloc, need_DRP):
     plt.ylim(yrange)
     plt.grid()
     plt.legend(loc=lgloc)
-    plt.savefig("figs/Formal-{}-N{}-{}".format(name, N_low, N_high))
+    plt.savefig("figs/Formal-{}-N{}-{}-{}".format(name, N_low, N_high, init_method))
     plt.show()
 
 
@@ -496,9 +499,9 @@ if __name__ == '__main__':
         os.makedirs("figs")
     if not os.path.exists("fig_data"):
         os.makedirs("fig_data")
-    compare_policies_conveyor_example()
+    compare_policies_conveyor_example("global")
     #figure_from_file("Example2", 100, 1100, (0.093, 0.125), "lower right", need_DRP=False)
-    #figure_from_file("eg4action-gap-tb", 100, 1100, (0, 0.014), "right", need_DRP=True)
+    figure_from_file("eg4action-gap-tb", 100, 1100, "global", (0, 0.013), "right", need_DRP=True)
 
 
 

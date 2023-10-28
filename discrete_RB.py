@@ -14,6 +14,7 @@ Let us use the per-arm representation instead of the counting representation.
 
 import numpy as np
 import cvxpy as cp
+import matplotlib as mpl
 
 
 class RB(object):
@@ -82,7 +83,6 @@ class RB(object):
 class MeanFieldRB(object):
     """
     RB with infinite many arms that transition according to the mean-field dynamics
-    states are
     """
     def __init__(self, sspa_size, trans_tensor, reward_tensor, init_state_fracs=None):
         self.sspa_size = sspa_size
@@ -201,7 +201,6 @@ class SingleArmAnalyzer(object):
         return (self.opt_value, self.y.value)
 
     def solve_LP_Priority(self, fixed_dual=None):
-        ##### THIS IMPLEMENTATION COULD HAVE A BUG!!! DUAL VARIABLE IS NOT RELIABLE. NEED TO REWRITE ALL THIS.
         if fixed_dual is None:
             objective = self.get_objective()
             constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
@@ -405,7 +404,7 @@ class DirectRandomPolicy(object):
 
 
 class SimuPolicy(object):
-    def __init__(self, sspa_size, trans_tensor, reward_tensor, y, N, act_frac):
+    def __init__(self, sspa_size, trans_tensor, reward_tensor, y, N, act_frac, init_virtual):
         self.sspa_size = sspa_size
         self.sspa = np.array(list(range(self.sspa_size)))
         self.aspa = np.array([0, 1])
@@ -424,7 +423,10 @@ class SimuPolicy(object):
         #     self.virtual_states = init_states
         # else:
         #     self.virtual_states = np.random.choice(self.sspa, self.N)
-        self.virtual_states = np.random.choice(self.sspa, self.N)
+        if init_virtual is None:
+            self.virtual_states = np.random.choice(self.sspa, self.N)
+        else:
+            self.virtual_states = init_virtual.copy()
 
         # get the randomized policy from the solution y
         self.state_probs = np.sum(self.y, axis=1)
@@ -563,4 +565,60 @@ class SimuPolicy(object):
             self.virtual_states[cur_indices] = np.random.choice(self.sspa, size=len(cur_indices),
                                                                 p=self.trans_tensor[sa_pair[0], sa_pair[1]])
 
+    def get_virtual_states(self):
+        return self.virtual_states.copy()
 
+
+def sa_list_to_freq(sspa_size, states, actions):
+    assert len(states) == len(actions)
+    sa_pair_freq = np.zeros((sspa_size, 2)) # 2 is the action space size
+    for i in range(len(states)):
+        s = int(states[i])
+        a = int(actions[i])
+        sa_pair_freq[s,a] += 1
+    return sa_pair_freq / len(states)
+
+def states_from_state_fracs(sspa_size, N, state_fracs):
+    states = np.zeros((N,))
+    for s in range(sspa_size):
+        start_ind = int(N * np.sum(state_fracs[0:s]))
+        end_ind = int(N * np.sum(state_fracs[0:(s+1)]))
+        states[start_ind: end_ind] = s
+    return states
+
+def drift_array_to_rgb_array(drift):
+    upward_arrows = np.expand_dims(drift > 0, axis=2)
+    downward_arrows = np.expand_dims(drift < 0, axis=2)
+    blue = np.array([0,0,1]).reshape((1,1,3))
+    red = np.array([1,0,0]).reshape((1,1,3))
+    rgb_array = upward_arrows * blue + downward_arrows * red
+    #print(rgb_array)
+    rgb_array = rgb_array.reshape((-1,3))
+    print(rgb_array.shape)
+    return rgb_array
+
+# def vector_to_rgb(angle, absolute):
+#     """Get the rgb value for the given `angle` and the `absolute` value
+#
+#     Parameters
+#     ----------
+#     angle : float
+#         The angle in radians
+#     absolute : float
+#         The absolute value of the gradient
+#
+#     Returns
+#     -------
+#     array_like
+#         The rgb value as a tuple with values [0..1]
+#     """
+#     max_abs = 10
+#
+#     # normalize angle
+#     angle = angle % (2 * np.pi)
+#     if angle < 0:
+#         angle += 2 * np.pi
+#
+#     return mpl.colors.hsv_to_rgb((angle / 2 / np.pi,
+#                                          absolute / max_abs,
+#                                          absolute / max_abs))

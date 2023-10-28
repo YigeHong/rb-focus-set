@@ -2,11 +2,6 @@ import numpy as np
 import pickle
 
 
-
-
-
-
-
 class Gast20Example1(object):
     def __init__(self):
         self.sspa_size = 3

@@ -74,9 +74,9 @@ def WIP_meanfield_simulation(T, act_frac, setting, priority_list, verbose=False,
         return trace
 
 
-def DirectRandomPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=False, init_states=None, full_trace=False):
+def RandomTBPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=False, init_states=None, full_trace=False):
     rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
-    policy = DirectRandomPolicy(setting.sspa_size, y=y, N=N, act_frac=act_frac)
+    policy = RandomTBPolicy(setting.sspa_size, y=y, N=N, act_frac=act_frac)
 
     if full_trace:
         trace = []
@@ -103,9 +103,9 @@ def DirectRandomPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=
         return trace
 
 
-def SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=False, init_states=None, init_virtual=None, tb=None, tb_param=None, full_trace=False):
+def FTVAPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=False, init_states=None, init_virtual=None, tb=None, tb_param=None, full_trace=False):
     rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states=init_states)
-    policy = SimuPolicy(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, y=y, N=N, act_frac=act_frac, init_virtual=init_virtual)
+    policy = FTVAPolicy(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, y=y, N=N, act_frac=act_frac, init_virtual=init_virtual)
     if full_trace:
         trace = []
     total_reward = 0
@@ -281,9 +281,9 @@ def compare_policies_experiments(init_method, need_DRP):
                 wip_avg_reward = WIP_experiment_one_point(N, T, act_frac, setting, priority_list, verbose=True, init_states=init_states)
                 wip_avg_rewards[rep, i_th_point] = wip_avg_reward
                 if need_DRP:
-                    drp_avg_reward = DirectRandomPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
+                    drp_avg_reward = RandomTBPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
                     drp_avg_rewards[rep, i_th_point] = drp_avg_reward
-                sp_avg_reward = SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
+                sp_avg_reward = FTVAPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
                 sp_avg_rewards[rep, i_th_point] = sp_avg_reward
 
             # save the data every repetition
@@ -375,9 +375,9 @@ def compare_policies_conveyor_example(init_method):
                     init_states[start_ind: end_ind] = s
             else:
                 raise NotImplementedError
-            reward = DirectRandomPolicy_experiment_one_point(N, T,  act_frac, setting, y, verbose=True, init_states=init_states)
+            reward = RandomTBPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
             drp_avg_rewards[rep, i_th_point] = reward
-            reward = SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
+            reward = FTVAPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, init_states=init_states)
             sp_avg_rewards[rep, i_th_point] = reward
             reward = WIP_experiment_one_point(N, T, act_frac, setting, priority_list=priority_list, verbose=True, init_states=init_states)
             lp_avg_rewards[rep, i_th_point] = reward
@@ -411,9 +411,9 @@ def compare_simu_tie_breakings():
     compare the performance of:
     wip
     drp
-    SimuPolicy with "goodness" tie breaking rule (default)
-    SimuPolicy with "priority" tie breaking rule
-    SimuPolicy with "goodness-priority: tie breaking rule
+    FTVA with "goodness" tie breaking rule (default)
+    FTVA with "priority" tie breaking rule
+    FTVA with "goodness-priority: tie breaking rule
     """
     settings = {"Example1": rb_settings.Gast20Example1(),
                 "Example2": rb_settings.Gast20Example2(),
@@ -450,10 +450,10 @@ def compare_simu_tie_breakings():
         for N in Ns:
             wip_avg_reward = WIP_experiment_one_point(N, T, act_frac, setting, priority_list, verbose=True)
             wip_avg_rewards.append(wip_avg_reward)
-            drp_avg_reward = DirectRandomPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True)
+            drp_avg_reward = RandomTBPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True)
             drp_avg_rewards.append(drp_avg_reward)
             for tb in tbs:
-                sp_avg_reward = SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, tb=tb, tb_param=priority_list)
+                sp_avg_reward = FTVAPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=True, tb=tb, tb_param=priority_list)
                 sp_avg_rewards_different_tbs[tb].append(sp_avg_reward)
 
         mfrb_curve = np.array([mfrb_avg_reward]*len(Ns))
@@ -699,11 +699,11 @@ def experiment_demonstrate_actions_conveyor_example(no_title):
     # print("mean field limit = ", mfrb_avg_reward)
 
     traces = []
-    trace = DirectRandomPolicy_experiment_one_point(N, T,  act_frac, setting, y, verbose=False, init_states=init_states, full_trace=True)
+    trace = RandomTBPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=False, init_states=init_states, full_trace=True)
     traces.append(trace)
     trace = WIP_experiment_one_point(N, T, act_frac, setting, priority_list=priority_list, verbose=False, init_states=init_states, full_trace=True)
     traces.append(trace)
-    trace = SimuPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=False, init_states=init_states, init_virtual=None, full_trace=True)
+    trace = FTVAPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=False, init_states=init_states, init_virtual=None, full_trace=True)
     traces.append(trace)
     for k in range(len(traces)):
         traces[k] = np.stack(traces[k])
@@ -745,7 +745,7 @@ def experiment_demonstrate_actions_conveyor_example(no_title):
     #     plt.savefig('figs/large_time_scale_state_time-notitle.png', dpi=1000)
 
 
-    # collect trace for the SimuPolicy starting from a bad initial point of another policy
+    # collect trace for the FTVA starting from a bad initial point of another policy
     benchmark_names = ["Random Tie-breaking", "LP-Priority"]
     start_t = 250
     burn_in_t = 0
@@ -755,7 +755,7 @@ def experiment_demonstrate_actions_conveyor_example(no_title):
         trace = traces[k]
         init_state_fracs = np.sum(trace[start_t,:,:], axis=1)
         init_states = states_from_state_fracs(sspa_size, N, init_state_fracs)
-        trace_ftva = SimuPolicy_experiment_one_point(N, burn_in_t+obs_t, act_frac, setting, y, verbose=False, init_states=init_states, init_virtual=None, full_trace=True)
+        trace_ftva = FTVAPolicy_experiment_one_point(N, burn_in_t + obs_t, act_frac, setting, y, verbose=False, init_states=init_states, init_virtual=None, full_trace=True)
         trace_ftva = np.stack(trace_ftva)
 
 

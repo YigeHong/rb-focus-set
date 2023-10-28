@@ -1,30 +1,22 @@
 """
-This file simulates the discrete_RB, and tests the performance of different policies?
-
-Need to figure out how to
-1 Input (in sparse form and dense form)
-2 Store (in sparse form and dense form)
-3 Process (solve the relaxed LP)
-4 Simulate (run the simulation)
-the small MDP of each arm.
-
-Also, how to represent the overall RB?
-Let us use the per-arm representation instead of the counting representation.
+This file defines the class for discrete_RB simulation environment,
+the helper class for solving single-armed LPs and getting priorities,
+classes for RB policies,
+along with a few helper functions
 """
 
 import numpy as np
 import cvxpy as cp
-import matplotlib as mpl
 
 
 class RB(object):
     """
-    state 0, 1, 2, 3
-    action ...
-    transition simulation: if (state, action) -> [0.5, 0.5, 0, 0], sample 1 or 2; if 2, ... better do the sampling in batches
-                            transitions from 0: discrete(probs_of_0, num_samples=N, ); transitions from 1: ...
-                            then we get an S by N matrix A. Get the next state using fancy indexing A[states, range(n)]
-                            This is wasting samples....
+    the simulation environment of restless bandits
+    :param sspa_siz: the size of the state space S
+    :param trans_tensor: np array of shape (S,A,S), representing the transition kernel {P(s,a,s')}
+    :param reward_tensor: np array of shape (S,a), representing the reward function {r(s,a)}
+    :param N: number of arms
+    :param init_states: the initial states of the arms. Initialize all arms to state 0 if not provided
     """
     def __init__(self, sspa_size, trans_tensor, reward_tensor, N, init_states=None):
         self.sspa_size = sspa_size
@@ -36,9 +28,7 @@ class RB(object):
             self.sa_pairs = self.sa_pairs + [(state, action) for state in self.sspa]
         self.N = N
         # map of state action to next states
-        # trans_dict = {sa_pair: new_state_probs for sa_pair in sa_pairs}
         self.trans_dict = {sa_pair: trans_tensor[sa_pair[0], sa_pair[1], :] for sa_pair in self.sa_pairs}
-        # trans_dict = {sa_pair: reward for sa_pair in sa_pairs}
         self.reward_dict = {sa_pair: reward_tensor[sa_pair[0], sa_pair[1]] for sa_pair in self.sa_pairs}
         # initialize the state of the arms at 0
         if init_states is not None:
@@ -50,19 +40,20 @@ class RB(object):
         return self.states.copy()
 
     def step(self, actions):
+        """
+        :param actions: a 1-d array with length N. Each entry is 0 or 1, denoting the action of each arm
+        :return: intantaneous reward of the this time step
+        """
         sa2indices = {sa_pair:None for sa_pair in self.sa_pairs} # each key is a list of indices in the range of self.N
         # find out the arms whose (state, action) = sa_pair
         for sa_pair in self.sa_pairs:
             sa2indices[sa_pair] = np.where(np.all([self.states == sa_pair[0], actions == sa_pair[1]], axis=0))[0]
-        #print(sa2indices)
-        #print([len(value) for key, value in sa2indices.items()])
         instant_reward = 0
         for sa_pair in self.sa_pairs:
             next_states = np.random.choice(self.sspa, len(sa2indices[sa_pair]), p=self.trans_dict[sa_pair])
             self.states[sa2indices[sa_pair]] = next_states
             instant_reward += self.reward_dict[sa_pair] * len(sa2indices[sa_pair])
-        # we normalize it by the number of arms!
-        instant_reward = instant_reward / self.N
+        instant_reward = instant_reward / self.N  # we normalize it by the number of arms
         return instant_reward
 
     def get_s_counts(self):
@@ -83,6 +74,10 @@ class RB(object):
 class MeanFieldRB(object):
     """
     RB with infinite many arms that transition according to the mean-field dynamics
+    :param sspa_siz: the size of the state space S
+    :param trans_tensor: np array of shape (S,A,S), representing the transition kernel {P(s,a,s')}
+    :param reward_tensor: np array of shape (S,a), representing the reward function {r(s,a)}
+    :param init_state_fracs: the initial fraction of arms in each state. Initialize all arms to state 0 if not provided
     """
     def __init__(self, sspa_size, trans_tensor, reward_tensor, init_state_fracs=None):
         self.sspa_size = sspa_size
@@ -106,7 +101,7 @@ class MeanFieldRB(object):
     def step(self, sa_pair_fracs):
         """
         :param sa_pair_fracs:
-        :return: update the state fracs and get rewards
+        :return: intantaneous reward of the this time step
         """
         assert np.all(np.isclose(np.sum(sa_pair_fracs, axis=1), self.state_fracs, atol=1e-4)), \
             "the input sa_pair_fracs is not consistent with current state, {}!={}".format(np.sum(sa_pair_fracs, axis=1), self.state_fracs)
@@ -125,6 +120,13 @@ class MeanFieldRB(object):
 
 
 class SingleArmAnalyzer(object):
+    """
+    the simulation environment of restless bandits
+    :param sspa_siz: the size of the state space S
+    :param trans_tensor: np array of shape (S,A,S), representing the transition kernel {P(s,a,s')}
+    :param reward_tensor: np array of shape (S,a), representing the reward function {r(s,a)}
+    :param act_frac: the fraction of arms to activate in each time slot
+    """
     def __init__(self, sspa_size, trans_tensor, reward_tensor, act_frac):
         # problem parameters
         self.sspa_size = sspa_size   # state-space size
@@ -134,8 +136,8 @@ class SingleArmAnalyzer(object):
         self.sa_pairs = []   # all possible combinations of (state,action), defined for the convenience of iteration
         for action in self.aspa:
             self.sa_pairs = self.sa_pairs + [(state, action) for state in self.sspa]
-        self.trans_tensor = trans_tensor   # the transition kernel P, dimensions (state, action, next_state). See the examples defined in "rb_settings.py".
-        self.reward_tensor = reward_tensor   # the reward function r, dimensions (state, action). See the examples defined in "rb_settings.py".
+        self.trans_tensor = trans_tensor
+        self.reward_tensor = reward_tensor
         self.act_frac = act_frac
         # some constants
         self.EPS = 1e-7  # any numbers smaller than this are regard as zero
@@ -150,7 +152,7 @@ class SingleArmAnalyzer(object):
         self.dualvar = cp.Parameter(name="dualvar")  # the subsidy parameter for solving Whittle's index policy
 
         # store some data of the solution, only needed for solving the LP-Priority policy
-        # the values might change, so they are not safe to access unless immediately after solving the LP.
+        # the values might change, so they are not safe to use unless immediately after solving the LP.
         self.opt_value = None
         self.avg_reward = None
         self.opt_subsidy = None
@@ -210,19 +212,16 @@ class SingleArmAnalyzer(object):
             constrs = self.get_stationary_constraints() + self.get_basic_constraints()
         problem = cp.Problem(objective, constrs)
         self.opt_value = problem.solve(verbose=False)
-        # print("Optimal value ", opt_value)
-        # print("Optimal var")
-        # print(self.y.value)
 
-        # hack value function from the dual variables. Later we should rewrite the dual problem explicitly
+        # get value function from the dual variables. Later we should rewrite the dual problem explicitly
         # average reward is the dual variable of "sum to 1" constraint
         self.avg_reward = constrs[-1].dual_value     # the sign is positive, DO NOT CHANGE IT
         for i in range(self.sspa_size):
             # value function is the dual of stationary constraint
             self.value_func_relaxed[i] = - constrs[i].dual_value   # the sign is negative, DO NOT CHANGE IT
         if fixed_dual is None:
-            # optimal subsidy is the dual of budget constraint
-            self.opt_subsidy = constrs[self.sspa_size].dual_value  # optimal subsidy for passive actions
+            # optimal subsidy for passive actions is the dual of budget constraint
+            self.opt_subsidy = constrs[self.sspa_size].dual_value
         else:
             self.opt_subsidy = fixed_dual
 
@@ -264,35 +263,32 @@ class SingleArmAnalyzer(object):
         # sorting from states with large index to small index
         wi2state_keys_sorted = sorted(wi2state.keys(), reverse=True)
         wi2state_sorted = {key: wi2state[key] for key in wi2state_keys_sorted}
-        #print(wi2state_sorted)
         priority_list = []
         for approx_wi in wi2state_sorted:
             priority_list += wi2state_sorted[approx_wi]
-        # print(priority_list)
         return priority_list, indexable
 
 
 class PriorityPolicy(object):
-    def __init__(self, sspa_size, priority_list, N, act_frac): #, N=None, budget=None, act_frac=None):
+    def __init__(self, sspa_size, priority_list, N, act_frac):
         """
-        :param sspa_size: this is not needed
+        The policy that uses a certain priority to allocate budget
+        :param sspa_size: size of the state space S
         :param priority_list: a list of states represented by numbers, from high priority to low priority
+        :param N: number of arms
+        :param act_frac: the fraction of arms to activate in each time slot
         """
         self.sspa_size = sspa_size
         self.sspa = np.array(list(range(self.sspa_size)))
         self.priority_list = priority_list
         self.act_frac = act_frac
         self.N = N
-        # if act_frac is not None:
-        #     self.act_frac = act_frac
-        # if (N is not None) and (budget is not None):
-        #     self.N = N
-        #     self.budget = budget
-        # if (act_frac is None) and ((N is None) or (budget is None)):
-        #     raise ValueError
 
     def get_actions(self, cur_states):
-        ### DO NOT MODIFY THE INPUT "CUR_STATE"
+        """
+        :param cur_states: the current states of the arms
+        :return: the actions taken by the arms under the policy
+        """
         # return actions from states
         s2indices = {state:None for state in self.sspa} # each key is a list of indices in the range of self.N
         # find out the arms whose (state, action) = sa_pair
@@ -334,9 +330,13 @@ class PriorityPolicy(object):
         return sa_pair_fracs
 
 
-class DirectRandomPolicy(object):
+class RandomTBPolicy(object):
     """
-    The policy that makes decisions only based on the current real states
+    The policy that makes decisions only based on the current real states, and break ties randomly
+    :param sspa_size: size of the state space S
+    :param y: a solution of the single-armed problem
+    :param N: number of arms
+    :param act_frac: the fraction of arms to activate in each time slot
     """
     def __init__(self, sspa_size, y, N, act_frac):
         self.sspa_size = sspa_size
@@ -364,6 +364,10 @@ class DirectRandomPolicy(object):
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
     def get_actions(self, cur_states):
+        """
+        :param cur_states: the current states of the arms
+        :return: the actions taken by the arms under the policy
+        """
         s2indices = {state:None for state in self.sspa}
         # count the indices of arms in each state
         for state in self.sspa:
@@ -386,24 +390,19 @@ class DirectRandomPolicy(object):
 
         return actions
 
-    # def get_sa_pair_fracs(self, cur_state_fracs):
-    #     sa_pair_fracs = np.zeros((self.sspa_size, 2))
-    #     rem_budget_normalize = self.act_frac
-    #     for state in self.priority_list:
-    #         frac_arms_this_state = cur_state_fracs[state]
-    #         if rem_budget_normalize >= frac_arms_this_state:
-    #             sa_pair_fracs[state, 1] = frac_arms_this_state
-    #             sa_pair_fracs[state, 0] = 0.0
-    #             rem_budget_normalize -= frac_arms_this_state
-    #         else:
-    #             sa_pair_fracs[state, 1] = rem_budget_normalize
-    #             sa_pair_fracs[state, 0] = frac_arms_this_state - rem_budget_normalize
-    #             rem_budget_normalize = 0
-    #     assert rem_budget_normalize == 0.0, "something is wrong, whittles index should use up all the budget"
-    #     return sa_pair_fracs
 
 
-class SimuPolicy(object):
+class FTVAPolicy(object):
+    """
+    FTVA policy
+    :param sspa_size: size of the state space S S
+    :param trans_tensor: np array of shape (S,A,S), representing the transition kernel {P(s,a,s')}
+    :param reward_tensor: np array of shape (S,a), representing the reward function {r(s,a)}
+    :param y: a solution of the single-armed problem
+    :param N: number of arms
+    :param act_frac: the fraction of arms to activate in each time slot
+    :param init_virtual: initial virtual states of the arms; initialized uniformly at random if not provided
+    """
     def __init__(self, sspa_size, trans_tensor, reward_tensor, y, N, act_frac, init_virtual):
         self.sspa_size = sspa_size
         self.sspa = np.array(list(range(self.sspa_size)))
@@ -419,10 +418,6 @@ class SimuPolicy(object):
         self.y = y
         self.EPS = 1e-7
 
-        # if init_states is not None:
-        #     self.virtual_states = init_states
-        # else:
-        #     self.virtual_states = np.random.choice(self.sspa, self.N)
         if init_virtual is None:
             self.virtual_states = np.random.choice(self.sspa, self.N)
         else:
@@ -443,6 +438,8 @@ class SimuPolicy(object):
     def get_actions(self, cur_states, tb_rule=None, tb_param=None):
         """
         :param cur_states: current state, actually not needed
+        :param tb_rule: a string, "goodness" "naive" "priority" or "goodness-priority". By default it is "goodness"
+        :param tb_param: parameter of the tie-breaking policy. Only needed if tb_rule = "priority" or "goodness-priority".
         :return: actions, virtual_actions
         """
         # generate budget using randomized rounding
@@ -459,7 +456,6 @@ class SimuPolicy(object):
             virtual_actions[vs2indices[state]] = np.random.choice(self.aspa, size=len(vs2indices[state]), p=self.policy[state])
 
         # Below we modify virtual actions into real actions, so that they satisfy the budget constraint
-
         # several different tie breaking rules
         if (tb_rule is None) or (tb_rule == "goodness"):
             # method 1 (the default option): we prioritize maintaining "good arms"
@@ -570,6 +566,12 @@ class SimuPolicy(object):
 
 
 def sa_list_to_freq(sspa_size, states, actions):
+    """
+    :param sspa_size: the size of the state space S
+    :param states: the states of the arms, which is a length-N array
+    :param actions: the actions of the arms, which is a length-N array
+    :return: the state-action frequency of the input states and actions
+    """
     assert len(states) == len(actions)
     sa_pair_freq = np.zeros((sspa_size, 2)) # 2 is the action space size
     for i in range(len(states)):
@@ -579,6 +581,12 @@ def sa_list_to_freq(sspa_size, states, actions):
     return sa_pair_freq / len(states)
 
 def states_from_state_fracs(sspa_size, N, state_fracs):
+    """
+    :param sspa_size: the size of the state space
+    :param N: the number of arms
+    :param state_fracs: the state frequency
+    :return: a length-N array of states, such that the ratio of each state is given by state_fracs
+    """
     states = np.zeros((N,))
     for s in range(sspa_size):
         start_ind = int(N * np.sum(state_fracs[0:s]))
@@ -587,6 +595,11 @@ def states_from_state_fracs(sspa_size, N, state_fracs):
     return states
 
 def drift_array_to_rgb_array(drift):
+    """
+    converting the drift array to a color array based on the direction and magnitude
+    :param drift: the drift map
+    :return: the color map
+    """
     upward_arrows = np.expand_dims(drift > 0, axis=2)
     downward_arrows = np.expand_dims(drift < 0, axis=2)
     blue = np.array([0,0,1]).reshape((1,1,3))
@@ -596,29 +609,3 @@ def drift_array_to_rgb_array(drift):
     rgb_array = rgb_array.reshape((-1,3))
     print(rgb_array.shape)
     return rgb_array
-
-# def vector_to_rgb(angle, absolute):
-#     """Get the rgb value for the given `angle` and the `absolute` value
-#
-#     Parameters
-#     ----------
-#     angle : float
-#         The angle in radians
-#     absolute : float
-#         The absolute value of the gradient
-#
-#     Returns
-#     -------
-#     array_like
-#         The rgb value as a tuple with values [0..1]
-#     """
-#     max_abs = 10
-#
-#     # normalize angle
-#     angle = angle % (2 * np.pi)
-#     if angle < 0:
-#         angle += 2 * np.pi
-#
-#     return mpl.colors.hsv_to_rgb((angle / 2 / np.pi,
-#                                          absolute / max_abs,
-#                                          absolute / max_abs))

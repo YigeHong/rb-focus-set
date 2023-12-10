@@ -1,7 +1,7 @@
 import unittest
 import rb_settings
 from discrete_RB import *
-from experiments import test_cycle
+from experiments import test_local_stability
 
 
 class TestDiscreteRB(unittest.TestCase):
@@ -43,7 +43,7 @@ class TestDiscreteRB(unittest.TestCase):
             setting = rb_settings.Gast20Example1() #rb_settings.RandomExample(sspa_size, distr="beta05")
             analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac=0.4)
             priority_list, indexable = analyzer.solve_whittles_policy()
-            has_cycle = test_cycle(setting, priority_list, act_frac=0.4, try_steps=100, eps=1e-4)
+            has_cycle = test_local_stability(setting, priority_list, act_frac=0.4, try_steps=100, eps=1e-4)
             self.assertTrue(indexable)
             self.assertTrue(has_cycle)
             print("Test on example {} passed".format(i+1))

@@ -121,7 +121,7 @@ class MeanFieldRB(object):
 
 class SingleArmAnalyzer(object):
     """
-    the simulation environment of restless bandits
+    solving the single-armed problem
     :param sspa_siz: the size of the state space S
     :param trans_tensor: np array of shape (S,A,S), representing the transition kernel {P(s,a,s')}
     :param reward_tensor: np array of shape (S,a), representing the reward function {r(s,a)}

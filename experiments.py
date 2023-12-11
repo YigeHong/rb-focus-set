@@ -797,6 +797,7 @@ if __name__ == '__main__':
         os.makedirs("fig_data")
 
     # # Generate data for the two examples in Figure 1 and Figure 2; they will be saved to the folder "fig_data"
+    # # uncomment the block of code below to rerun the simulations
     # # Figure 1 and Figure 2
     # Figure_1_experiments(init_method="default")
     # Figure_2_experiments(init_method="bad")

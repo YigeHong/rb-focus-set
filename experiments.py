@@ -627,13 +627,12 @@ def visualize_states_actions_Figure_2_example(no_title):
     traces.append(trace)
     for k in range(len(traces)):
         traces[k] = np.stack(traces[k])
-        print(traces[k])
 
     ## Generate Figure 7(a), where we visualize the state evolution for a larger time scale (500 time slots) under three policies
     fig, axs = plt.subplots(nrows=3, ncols=1, sharex='all', figsize=(9,5))
     for k in range(3):
         state_vs_time = np.sum(traces[k], axis=2).transpose((1,0))
-        axs[k].imshow(state_vs_time, origin="lower", aspect="auto", cmap="summer")
+        axs[k].imshow(state_vs_time, origin="lower", aspect="auto", cmap="summer", vmin=0, vmax=1)
         axs[k].set_yticks(ticks=np.arange(sspa_size)+0.5, labels=[r'${}$'.format(i) for i in np.arange(sspa_size)])
         for label in axs[k].get_yticklabels():
             label.set_verticalalignment('top')
@@ -656,8 +655,10 @@ def visualize_states_actions_Figure_2_example(no_title):
     cax.set_yticks(np.arange(0,1+1/8,1/8), [r'$0$']+[r'${}/8$'.format(i) for i in np.arange(1,8)]+[r'$1$'])
     if not no_title:
         plt.savefig('figs/large_time_scale_state_time.png', dpi=1000)
+        plt.savefig('figs/large_time_scale_state_time.pdf', dpi=1000)
     else:
         plt.savefig('figs/large_time_scale_state_time-notitle.png', dpi=1000)
+        plt.savefig('figs/large_time_scale_state_time-notitle.pdf', dpi=1000)
 
 
     ### Generate figure 3, 7(b) and 8
@@ -679,8 +680,9 @@ def visualize_states_actions_Figure_2_example(no_title):
         state_vs_time_ftva = np.sum(trace_ftva, axis=2).transpose((1,0))
 
         fig, axs = plt.subplots(nrows=2, ncols=1, sharex='all', figsize=(9,5))
-        axs[0].imshow(state_vs_time[:, (start_t+burn_in_t):(start_t+burn_in_t+obs_t)], origin="lower", aspect="auto", cmap="summer")
-        axs[1].imshow(state_vs_time_ftva[:, burn_in_t:], origin="lower", aspect="auto", cmap="summer")
+        axs[0].imshow(state_vs_time[:, (start_t+burn_in_t):(start_t+burn_in_t+obs_t)],
+                      origin="lower", aspect="auto", cmap="summer", vmin=0, vmax=1)
+        axs[1].imshow(state_vs_time_ftva[:, burn_in_t:], origin="lower", aspect="auto", cmap="summer", vmin=0, vmax=1)
 
         # prepare for the vector fields of drifts
         trace_slice = trace[(start_t+burn_in_t):(start_t+burn_in_t+obs_t),:,:]
@@ -732,8 +734,10 @@ def visualize_states_actions_Figure_2_example(no_title):
         #plt.show()
         if not no_title:
             plt.savefig("figs/vector-field-{}-vs-ftva.png".format(benchmark_names[k]), dpi=1000)
+            plt.savefig("figs/vector-field-{}-vs-ftva.pdf".format(benchmark_names[k]), dpi=1000)
         else:
             plt.savefig("figs/vector-field-{}-vs-ftva-notitle.png".format(benchmark_names[k]), dpi=1000)
+            plt.savefig("figs/vector-field-{}-vs-ftva-notitle.pdf".format(benchmark_names[k]), dpi=1000)
 
         ### Generate Figure 8
         obs_t_short = 4
@@ -782,9 +786,18 @@ def visualize_states_actions_Figure_2_example(no_title):
             label.set_horizontalalignment('left')
         plt.xticks(ticks=np.arange(0,8), labels=[r'${}$'.format(i) for i in np.arange(sspa_size)])
         plt.xlabel("state", fontsize=15)
-        fig.suptitle("State-action fraction starting from time {} \n under {} and FTVA ".format(start_t+burn_in_t, benchmark_names[k], ), fontsize=12)
-        plt.subplots_adjust(left=0.07, right=0.95, top=0.88, bottom=0.1, hspace=0.06)
-        plt.savefig("figs/sa-fraction-{}-vs-ftva.png".format(benchmark_names[k]), dpi=1000)
+        if not no_title:
+            fig.suptitle("State-action fraction starting from time {} \n under {} and FTVA ".format(start_t+burn_in_t, benchmark_names[k], ), fontsize=12)
+            plt.subplots_adjust(left=0.07, right=0.95, top=0.88, bottom=0.1, hspace=0.06)
+        else:
+            plt.subplots_adjust(left=0.07, right=0.95, top=0.98, bottom=0.1, hspace=0.06)
+        if not no_title:
+            plt.savefig("figs/sa-fraction-{}-vs-ftva.png".format(benchmark_names[k]), dpi=1000)
+            plt.savefig("figs/sa-fraction-{}-vs-ftva.pdf".format(benchmark_names[k]), dpi=1000)
+        else:
+            plt.savefig("figs/sa-fraction-{}-vs-ftva-notitle.png".format(benchmark_names[k]), dpi=1000)
+            plt.savefig("figs/sa-fraction-{}-vs-ftva-notitle.pdf".format(benchmark_names[k]), dpi=1000)
+
 
 
 if __name__ == '__main__':
@@ -807,11 +820,11 @@ if __name__ == '__main__':
 
     # Make figures. They will be saved to the folder "figs"
     # make Figure 1
-    figure_from_file("Figure1Example", 100, 1100, "default", (0.093, 0.125), "lower right", need_DRP=False)
+    # figure_from_file("Figure1Example", 100, 1100, "default", (0.093, 0.125), "lower right", need_DRP=False)
     # make Figure 2
-    figure_from_file("Figure2Example", 100, 1100, "bad", (0, 0.014), "right", need_DRP=True)
+    # figure_from_file("Figure2Example", 100, 1100, "bad", (0, 0.014), "right", need_DRP=True)
     # make Figure 6
-    figure_from_file_multiple_inits("Figure1Example", 100, 1100, "global", (0.093, 0.125), "lower right", plot_type="max-min", need_DRP=False)
-    figure_from_file_multiple_inits("Figure2Example", 100, 1100, "global", (0, 0.021), "upper right", plot_type="max-min", need_DRP=True)
+    # figure_from_file_multiple_inits("Figure1Example", 100, 1100, "global", (0.093, 0.125), "lower right", plot_type="max-min", need_DRP=False)
+    # figure_from_file_multiple_inits("Figure2Example", 100, 1100, "global", (0, 0.021), "upper right", plot_type="max-min", need_DRP=True)
     # make Figure 3, 7, 8
     visualize_states_actions_Figure_2_example(no_title=True)

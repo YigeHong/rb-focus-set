@@ -195,12 +195,78 @@ class SingleArmAnalyzer(object):
         constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
         problem = cp.Problem(objective, constrs)
         self.opt_value = problem.solve()
-        print("--------LP solved, solution as below-------")
+        print("--------LP relaxation solved, solution as below-------")
         print("Optimal value ", self.opt_value)
         print("Optimal var")
         print(self.y.value)
         print("---------------------------")
         return (self.opt_value, self.y.value)
+
+    def print_Phi(self):
+        # self.solve_lp()
+        y = self.y.value
+
+        state_probs = np.sum(y, axis=1)
+        print("mu*=", state_probs)
+        policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
+        for state in self.sspa:
+            if state_probs[state] > self.EPS:
+                policy[state, :] = y[state, :] / state_probs[state]
+            else:
+                policy[state, 0] = 0.5
+                policy[state, 1] = 0.5
+        print("policy=", policy)
+
+        ind_neu = np.where(np.all([y[:,0] > self.EPS, y[:,1] > self.EPS],axis=0))[0]
+        print("ind_neu=", ind_neu)
+
+        Ppibs = np.zeros((self.sspa_size, self.sspa_size,))
+        for a in self.aspa:
+            Ppibs += self.trans_tensor[:,a,:]*np.expand_dims(policy[:,a], axis=1)
+        Phi = Ppibs -  np.outer(np.ones((self.sspa_size,)), state_probs) \
+                - np.outer(policy[:,1] - self.act_frac * np.ones((self.sspa_size,)), self.trans_tensor[ind_neu,1,:] - self.trans_tensor[ind_neu,0,:])
+        moduli = [np.absolute(lam) for lam in np.linalg.eigvals(Phi)]
+        spec_rad = max(moduli)
+
+        print(policy[:,1] - self.act_frac * np.ones((self.sspa_size,)))
+
+        print("P1=", self.trans_tensor[:,1,:])
+        print("P0=", self.trans_tensor[:,0,:])
+        print("Ppibs=", Ppibs)
+        print("Phi=", Phi)
+        print("moduli=", moduli)
+
+    def compute_W(self, num_terms):
+        # self.solve_lp()
+        y = self.y.value
+
+        state_probs = np.sum(y, axis=1)
+        # print("mu*=", state_probs)
+        policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
+        for state in self.sspa:
+            if state_probs[state] > self.EPS:
+                policy[state, :] = y[state, :] / state_probs[state]
+            else:
+                policy[state, 0] = 0.5
+                policy[state, 1] = 0.5
+        # print("policy=", policy)
+
+        Ppibs = np.zeros((self.sspa_size, self.sspa_size,))
+        for a in self.aspa:
+            Ppibs += self.trans_tensor[:,a,:]*np.expand_dims(policy[:,a], axis=1)
+
+        Ppibs_centered = Ppibs - np.outer(np.ones((self.sspa_size,)), state_probs)
+        W = np.zeros((self.sspa_size, self.sspa_size))
+        P_power = np.eye(self.sspa_size)
+        # calculate W, test tolerance level
+        for k in range(num_terms):
+            W += np.matmul(P_power, P_power.T)
+            P_power = np.matmul(Ppibs_centered, P_power)
+        P_power_norm = np.linalg.norm(P_power)
+        W_norm = np.linalg.norm(W, ord=2)
+        print("P_power_norm=", P_power_norm, "W_norm=", W_norm)
+        spn_error = W_norm * P_power_norm**2 / (1-P_power_norm**2)
+        return W, spn_error
 
     def solve_LP_Priority(self, fixed_dual=None):
         if fixed_dual is None:
@@ -358,8 +424,8 @@ class RandomTBPolicy(object):
             if self.state_probs[state] > self.EPS:
                 self.policy[state, :] = self.y[state, :] / self.state_probs[state]
             else:
-                self.policy[state, 0] = 1.0
-                self.policy[state, 1] = 0.0
+                self.policy[state, 0] = 0.5
+                self.policy[state, 1] = 0.5
         assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
@@ -389,7 +455,6 @@ class RandomTBPolicy(object):
             actions[no_request_pulled] = 1
 
         return actions
-
 
 
 class FTVAPolicy(object):
@@ -430,8 +495,8 @@ class FTVAPolicy(object):
             if self.state_probs[state] > self.EPS:
                 self.policy[state, :] = self.y[state, :] / self.state_probs[state]
             else:
-                self.policy[state, 0] = 1.0
-                self.policy[state, 1] = 0.0
+                self.policy[state, 0] = 0.5
+                self.policy[state, 1] = 0.5
         assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
@@ -564,6 +629,153 @@ class FTVAPolicy(object):
     def get_virtual_states(self):
         return self.virtual_states.copy()
 
+
+class IDPolicy(object):
+    def __init__(self, sspa_size, y, N, act_frac):
+        self.sspa_size = sspa_size
+        self.sspa = np.array(list(range(self.sspa_size)))
+        self.aspa = np.array([0, 1])
+        self.sa_pairs = []
+        for action in self.aspa:
+            self.sa_pairs = self.sa_pairs + [(state, action) for state in self.sspa]
+
+        self.N = N
+        self.act_frac = act_frac
+        self.y = y
+        self.EPS = 1e-7
+
+        # get the randomized policy from the solution y
+        self.state_probs = np.sum(self.y, axis=1)
+        self.policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
+        for state in self.sspa:
+            if self.state_probs[state] > self.EPS:
+                self.policy[state, :] = self.y[state, :] / self.state_probs[state]
+            else:
+                self.policy[state, 0] = 0.5
+                self.policy[state, 1] = 0.5
+        assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
+            "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
+
+    def get_action(self, cur_states):
+        """
+        :param cur_states: the current states of the arms
+        :return: the actions taken by the arms under the policy
+        """
+        s2indices = {state:None for state in self.sspa}
+        # count the indices of arms in each state
+        for state in self.sspa:
+            s2indices[state] = np.where(cur_states == state)[0]
+        actions = np.zeros((self.N,), dtype=np.int64)
+        for state in self.sspa:
+            actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
+
+        budget = int(self.N * self.act_frac)
+        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when alpha N
+
+        # todo: change the logic below, use ID rather than random TB
+        num_requests = np.sum(actions)
+        if num_requests > budget:
+            indices_request = np.where(actions==1)[0]
+            request_ignored = np.random.choice(indices_request, int(num_requests - budget), replace=False)
+            actions[request_ignored] = 0
+        else:
+            indices_no_request = np.where(actions==0)[0]
+            no_request_pulled = np.random.choice(indices_no_request, int(budget - num_requests), replace=False)
+            actions[no_request_pulled] = 1
+
+        return actions
+
+
+class SetExpansionPolicy(object):
+    def __init__(self, sspa_size, y, N, act_frac):
+        self.sspa_size = sspa_size
+        self.sspa = np.array(list(range(self.sspa_size)))
+        self.aspa = np.array([0, 1])
+        self.sa_pairs = []
+        for action in self.aspa:
+            self.sa_pairs = self.sa_pairs + [(state, action) for state in self.sspa]
+
+        self.N = N
+        self.act_frac = act_frac
+        self.y = y
+        self.EPS = 1e-7
+        # # the focus set, represented as an array of IDs of the arms
+        # self.focus_set = np.array([])
+
+        # variables and parameters
+        self.z = cp.Variable(self.sspa_size)
+        self.m = cp.Variable()
+        self.d = cp.Variable(self.sspa_size)
+        # self.s_count_scaled = np.zeros((self.sspa_size,))
+        # self.s_count_scaled_fs = np.zeros((self.sspa_size,))
+        self.s_count_scaled = cp.Parameter(self.sspa_size)
+        self.s_count_scaled_fs = cp.Parameter(self.sspa_size)
+        self.beta = cp.Parameter()
+        self.beta = min(act_frac, 1-act_frac)
+        self.state_probs = cp.Parameter(self.sspa_size)
+
+
+        # get the randomized policy from the solution y
+        self.state_probs = np.sum(self.y, axis=1)
+        self.policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
+        for state in self.sspa:
+            if self.state_probs[state] > self.EPS:
+                self.policy[state, :] = self.y[state, :] / self.state_probs[state]
+            else:
+                self.policy[state, 0] = 0.5
+                self.policy[state, 1] = 0.5
+        assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
+            "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
+
+    def get_new_focus_set(self, states, last_focus_set):
+        """
+        states: length-N vector of states
+        focus_set: array of IDs for the arms in the focus set
+        """
+        states_fs = states[last_focus_set]
+        s2indices = {s: None for s in self.sspa}
+        s2indices_fs = {s: None for s in self.sspa} # state to indices map in the focus set
+        s_count_scaled = np.zeros((self.sspa_size,))
+        s_count_scaled_fs = np.zeros((self.sspa_size,))
+        for s in self.sspa:
+            s2indices[s] = np.where(states == s)[0]
+            s2indices_fs[s] = np.where(states_fs == s)[0]
+            s_count_scaled[s] = len(s2indices[s]) / self.N
+            s_count_scaled_fs[s] = len(s2indices_fs[s]) / self.N
+        print("Xt([N]) = {}, Xt(D(t-1)) = {}".format(s_count_scaled, s_count_scaled_fs))
+        self.s_count_scaled = s_count_scaled
+        self.s_count_scaled_fs = s_count_scaled_fs
+
+        cur_m = len(last_focus_set)/self.N
+        cur_delta = self.beta*(1-cur_m) - np.linalg.norm(s_count_scaled_fs - cur_m * self.state_probs, ord=1)
+
+        constrs = []
+        if cur_delta > 0:
+            constrs.append(self.z <= self.s_count_scaled)
+            constrs.append(self.z >= self.s_count_scaled_fs)
+        else:
+            constrs.append(self.z <= self.s_count_scaled_fs)
+        constrs.append(self.m == cp.sum(self.z))
+        constrs.append(self.z - self.m*self.state_probs <= self.d)
+        constrs.append(- self.z + self.m*self.state_probs <= self.d)
+        constrs.append(cp.sum(self.d) <= self.beta * (1-self.m))
+
+        objective = cp.Maximize(self.m)
+        problem = cp.Problem(objective, constrs)
+        problem.solve()
+        print("m = {}, Dt={}, abs_value_diff={}".format(self.m.value, self.z.value, self.d.value))
+
+
+    def get_actions(self, states, cur_focus_set):
+        pass
+
+
+# def states_to_scaled_state_counts(sspa_size, N, states):
+#     scaled_state_counts = np.zeros((sspa_size,)) # 2 is the action space size
+#     for i in range(len(states)):
+#         s = int(states[i])
+#         scaled_state_counts[s] += 1
+#     return scaled_state_counts / N
 
 def sa_list_to_freq(sspa_size, states, actions):
     """

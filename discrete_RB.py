@@ -7,6 +7,7 @@ along with a few helper functions
 
 import numpy as np
 import cvxpy as cp
+import scipy
 
 
 class RB(object):
@@ -236,7 +237,7 @@ class SingleArmAnalyzer(object):
         print("Phi=", Phi)
         print("moduli=", moduli)
 
-    def compute_W(self, num_terms):
+    def compute_W(self, abstol):
         # self.solve_lp()
         y = self.y.value
 
@@ -259,13 +260,18 @@ class SingleArmAnalyzer(object):
         W = np.zeros((self.sspa_size, self.sspa_size))
         P_power = np.eye(self.sspa_size)
         # calculate W, test tolerance level
-        for k in range(num_terms):
+        iters = 0
+        while True:
             W += np.matmul(P_power, P_power.T)
             P_power = np.matmul(Ppibs_centered, P_power)
-        P_power_norm = np.linalg.norm(P_power)
-        W_norm = np.linalg.norm(W, ord=2)
-        print("P_power_norm=", P_power_norm, "W_norm=", W_norm)
-        spn_error = W_norm * P_power_norm**2 / (1-P_power_norm**2)
+            P_power_norm = np.linalg.norm(P_power)
+            W_norm = np.linalg.norm(W, ord=2)
+            # print("P_power_norm=", P_power_norm, "W_norm=", W_norm)
+            spn_error = W_norm * P_power_norm**2 / (1-P_power_norm**2)
+            iters += 1
+            if (P_power_norm < 1) and (spn_error < abstol):
+                break
+        print("W computed after expanding {} terms".format(iters))
         return W, spn_error
 
     def solve_LP_Priority(self, fixed_dual=None):
@@ -755,6 +761,7 @@ class SetExpansionPolicy(object):
             constrs.append(self.z >= self.s_count_scaled_fs)
         else:
             constrs.append(self.z <= self.s_count_scaled_fs)
+            constrs.append(self.z >= 0)
         constrs.append(self.m == cp.sum(self.z))
         constrs.append(self.z - self.m*self.state_probs <= self.d)
         constrs.append(- self.z + self.m*self.state_probs <= self.d)
@@ -763,8 +770,85 @@ class SetExpansionPolicy(object):
         objective = cp.Maximize(self.m)
         problem = cp.Problem(objective, constrs)
         problem.solve()
-        print("m = {}, Dt={}, abs_value_diff={}".format(self.m.value, self.z.value, self.d.value))
+        print("----set-expansion solution----")
+        print("m = {}, \n X(Dt)={}, \n abs_value_diff={}".format(self.m.value, self.z.value, self.d.value))
 
+        # to finish: return a focus set
+
+    def get_actions(self, states, cur_focus_set):
+        pass
+
+class SetOptPolicy(object):
+    def __init__(self, sspa_size, y, N, act_frac, W):
+        self.sspa_size = sspa_size
+        self.sspa = np.array(list(range(self.sspa_size)))
+        self.aspa = np.array([0, 1])
+        self.sa_pairs = []
+        for action in self.aspa:
+            self.sa_pairs = self.sa_pairs + [(state, action) for state in self.sspa]
+
+        self.N = N
+        self.act_frac = act_frac
+        self.y = y
+        self.W = W
+        self.W_sqrt = scipy.linalg.sqrtm(W)
+        self.Lw = 2 * np.linalg.norm(W, ord=2) ## we add a small amount to ensure that the returned value is ...
+        self.EPS = 1e-7
+        # # the focus set, represented as an array of IDs of the arms
+        # self.focus_set = np.array([])
+
+        # variables and parameters
+        self.z = cp.Variable(self.sspa_size)
+        self.m = cp.Variable()
+        self.d = cp.Variable(self.sspa_size)
+        self.f = cp.Variable()
+        self.s_count_scaled = cp.Parameter(self.sspa_size)
+        self.beta = cp.Parameter()
+        self.beta = min(act_frac, 1-act_frac)
+        self.state_probs = cp.Parameter(self.sspa_size)
+
+        # get the randomized policy from the solution y
+        self.state_probs = np.sum(self.y, axis=1)
+        self.policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
+        for state in self.sspa:
+            if self.state_probs[state] > self.EPS:
+                self.policy[state, :] = self.y[state, :] / self.state_probs[state]
+            else:
+                self.policy[state, 0] = 0.5
+                self.policy[state, 1] = 0.5
+        assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
+            "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
+
+    def get_new_focus_set(self, states):
+        """
+        states: length-N vector of states
+        """
+        s2indices = {s: None for s in self.sspa}
+        s_count_scaled = np.zeros((self.sspa_size,))
+        for s in self.sspa:
+            s2indices[s] = np.where(states == s)[0]
+            s_count_scaled[s] = len(s2indices[s]) / self.N
+        print("Xt([N]) = {}".format(s_count_scaled))
+        self.s_count_scaled = s_count_scaled
+
+        constrs = []
+        # second order cone constraint: norm{sqrt(W) @ (z- m * mu)}_2 <= self.f
+        constrs.append(cp.SOC(self.f, self.W_sqrt @ (self.z - self.m * self.state_probs)))
+        constrs.append(self.z <= self.s_count_scaled)
+        constrs.append(self.z >= 0)
+        constrs.append(self.m == cp.sum(self.z))
+        constrs.append(self.z - self.m*self.state_probs <= self.d)
+        constrs.append(- self.z + self.m*self.state_probs <= self.d)
+        constrs.append(cp.sum(self.d) <= self.beta * (1-self.m))
+
+        objective = cp.Minimize(self.f + (self.Lw+0.1)*(1 - self.m))
+        problem = cp.Problem(objective, constrs)
+        problem.solve()
+        print("----set-optimization solution----")
+        print("m = {}, \n X(Dt)={}, \n m*mu={} \n abs_value_diff={}, \n Hw={}\n ".format(
+            self.m.value, self.z.value, self.m.value*self.state_probs, self.d.value, self.f.value))
+
+        # to finish: return a focus set
 
     def get_actions(self, states, cur_focus_set):
         pass

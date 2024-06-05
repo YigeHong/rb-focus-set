@@ -1,5 +1,6 @@
 import numpy as np
 import cvxpy as cp
+import scipy
 from discrete_RB import *
 import rb_settings
 import time
@@ -17,14 +18,19 @@ def test_repeated_solver():
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     y = analyzer.solve_lp()[1]
-    policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
+    W = analyzer.compute_W(abstol=1e-10)[0]
+    setexp_policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
+    setopt_policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
 
     cum_time = 0
-    T = 5
+    T = 10
     for i in range(T):
         tic = time.time()
         states = np.random.choice(sspa, N, replace=True)
-        policy.get_new_focus_set(states=states, last_focus_set=np.array([], dtype=int))
+        setexp_policy.get_new_focus_set(states=states, last_focus_set=np.array([], dtype=int))
+        setopt_policy.get_new_focus_set(states=states)
+        print("difference between two policies Xt(Dt): ", np.linalg.norm(setexp_policy.z.value - setopt_policy.z.value, ord=2))
+        print()
         itime = time.time() - tic
         print("{}-th solving time = ".format(i), itime)
         cum_time += itime
@@ -42,13 +48,18 @@ def test_W_solver():
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     analyzer.solve_lp()
 
-    for num_terms in range(100, 1000, 100):
-        W, spn_error = analyzer.compute_W(num_terms=num_terms)
-    print("W={}, lamw <= {}, expand {} terms, spectral norm error<={}".format(W, np.linalg.norm(W, ord=2), num_terms, spn_error))
+    W, spn_error = analyzer.compute_W(abstol=1e-10)
+    print("W={}, lamw = {}, spectral norm error<={}".format(W, np.linalg.norm(W, ord=2), spn_error))
+
+    W_sqrt = scipy.linalg.sqrtm(W)
+    print("W_sqrt = ", W_sqrt)
+    print(np.sort(np.linalg.eigvals(W)))
+    print(np.sort(np.linalg.eigvals(W_sqrt)))
 
 
 np.random.seed(114514)
-# test_repeated_solver()
-test_W_solver()
+np.set_printoptions(precision=4)
+test_repeated_solver()
+# test_W_solver()
 
 

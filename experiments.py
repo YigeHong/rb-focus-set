@@ -113,7 +113,7 @@ def FTVAPolicy_experiment_one_point(N, T, act_frac, setting, y, verbose=False, i
     total_reward = 0
     tic = time()
     for t in range(T):
-        prev_state = rb.get_states() # rb.states.copy() # need to copy so that no bug
+        prev_state = rb.get_states()
         actions, virtual_actions = policy.get_actions(prev_state, tb, tb_param)
         if full_trace:
             cur_sa_freq = sa_list_to_freq(rb.sspa_size, prev_state, actions)

@@ -489,11 +489,6 @@ class FTVAPolicy(object):
         self.y = y
         self.EPS = 1e-7
 
-        if init_virtual is None:
-            self.virtual_states = np.random.choice(self.sspa, self.N)
-        else:
-            self.virtual_states = init_virtual.copy()
-
         # get the randomized policy from the solution y
         self.state_probs = np.sum(self.y, axis=1)
         self.policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
@@ -505,6 +500,11 @@ class FTVAPolicy(object):
                 self.policy[state, 1] = 0.5
         assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
+
+        if init_virtual is None:
+            self.virtual_states = np.random.choice(self.sspa, self.N, replace=True, p=self.state_probs)
+        else:
+            self.virtual_states = init_virtual.copy()
 
     def get_actions(self, cur_states, tb_rule=None, tb_param=None):
         """
@@ -662,7 +662,7 @@ class IDPolicy(object):
         assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
-    def get_action(self, cur_states):
+    def get_actions(self, cur_states):
         """
         :param cur_states: the current states of the arms
         :return: the actions taken by the arms under the policy
@@ -678,16 +678,17 @@ class IDPolicy(object):
         budget = int(self.N * self.act_frac)
         budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when alpha N
 
-        # todo: change the logic below, use ID rather than random TB
+        # todo: to test
         num_requests = np.sum(actions)
         if num_requests > budget:
-            indices_request = np.where(actions==1)[0]
-            request_ignored = np.random.choice(indices_request, int(num_requests - budget), replace=False)
+            indices_request = np.sort(np.where(actions==1)[0])
+            request_ignored = indices_request[-int(num_requests - budget)-1:-1]
             actions[request_ignored] = 0
         else:
-            indices_no_request = np.where(actions==0)[0]
-            no_request_pulled = np.random.choice(indices_no_request, int(budget - num_requests), replace=False)
+            indices_no_request = np.sort(np.where(actions==0)[0])
+            no_request_pulled = indices_no_request[-int(budget - num_requests)-1:-1]
             actions[no_request_pulled] = 1
+        assert np.sum(actions) == budget
 
         return actions
 
@@ -720,7 +721,6 @@ class SetExpansionPolicy(object):
         self.beta = min(act_frac, 1-act_frac)
         self.state_probs = cp.Parameter(self.sspa_size)
 
-
         # get the randomized policy from the solution y
         self.state_probs = np.sum(self.y, axis=1)
         self.policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
@@ -733,22 +733,22 @@ class SetExpansionPolicy(object):
         assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
-    def get_new_focus_set(self, states, last_focus_set):
+    def get_new_focus_set(self, cur_states, last_focus_set):
         """
         states: length-N vector of states
         focus_set: array of IDs for the arms in the focus set
         """
-        states_fs = states[last_focus_set]
+        states_fs = cur_states[last_focus_set]
         s2indices = {s: None for s in self.sspa}
         s2indices_fs = {s: None for s in self.sspa} # state to indices map in the focus set
         s_count_scaled = np.zeros((self.sspa_size,))
         s_count_scaled_fs = np.zeros((self.sspa_size,))
         for s in self.sspa:
-            s2indices[s] = np.where(states == s)[0]
+            s2indices[s] = np.where(cur_states == s)[0]
             s2indices_fs[s] = np.where(states_fs == s)[0]
             s_count_scaled[s] = len(s2indices[s]) / self.N
             s_count_scaled_fs[s] = len(s2indices_fs[s]) / self.N
-        print("Xt([N]) = {}, Xt(D(t-1)) = {}".format(s_count_scaled, s_count_scaled_fs))
+        # print("Xt([N]) = {}, Xt(D(t-1)) = {}".format(s_count_scaled, s_count_scaled_fs))
         self.s_count_scaled = s_count_scaled
         self.s_count_scaled_fs = s_count_scaled_fs
 
@@ -756,9 +756,11 @@ class SetExpansionPolicy(object):
         cur_delta = self.beta*(1-cur_m) - np.linalg.norm(s_count_scaled_fs - cur_m * self.state_probs, ord=1)
 
         constrs = []
+        non_shrink_flag = 0
         if cur_delta > 0:
             constrs.append(self.z <= self.s_count_scaled)
             constrs.append(self.z >= self.s_count_scaled_fs)
+            non_shrink_flag = 1
         else:
             constrs.append(self.z <= self.s_count_scaled_fs)
             constrs.append(self.z >= 0)
@@ -770,13 +772,92 @@ class SetExpansionPolicy(object):
         objective = cp.Maximize(self.m)
         problem = cp.Problem(objective, constrs)
         problem.solve()
-        print("----set-expansion solution----")
-        print("m = {}, \n X(Dt)={}, \n abs_value_diff={}".format(self.m.value, self.z.value, self.d.value))
+        # print("----set-expansion solution----")
+        # print("m = {}, \n X(Dt)={}, \n abs_value_diff={}".format(self.m.value, self.z.value, self.d.value))
 
-        # to finish: return a focus set
+        next_focus_set = []
+        for s in self.sspa:
+            next_s_count_fs = int(self.N * self.z.value[s])
+            next_focus_set.extend(s2indices[s][0:next_s_count_fs])
+        next_focus_set = np.array(next_focus_set, dtype=int)
+        # print("state count = ", self.z.value * self.N, "states = ", cur_states, "focus set = ", next_focus_set)
+        return next_focus_set, non_shrink_flag
 
-    def get_actions(self, states, cur_focus_set):
-        pass
+    def get_actions(self, cur_states, cur_focus_set):
+        """
+        :param cur_states: the current states of the arms
+        :param cur_focus_set: array of IDs denoting the arms in the focus set
+        """
+        s2indices = {state:None for state in self.sspa}
+        # count the indices of arms in each state
+        for state in self.sspa:
+            s2indices[state] = np.where(cur_states == state)[0]
+        actions = np.zeros((self.N,), dtype=np.int64)
+        for state in self.sspa:
+            actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
+
+        budget = int(self.N * self.act_frac)
+        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when alpha N
+
+        cur_focus_set_mask = np.zeros((self.N,), dtype=int)
+        cur_focus_set_mask[cur_focus_set] = 1
+        # print("cur_focus_set = {}, mask = {}", cur_focus_set, cur_focus_set_mask)
+        req_focus_mask = actions * cur_focus_set_mask
+        non_req_focus_mask = (1-actions) * cur_focus_set_mask
+        non_focus = np.where(1-cur_focus_set_mask)[0]
+        # print("actions = {}\nfocus_set_mask = {}\nreq_focus_mask = {}".format(actions, cur_focus_set_mask, req_focus_mask))
+
+        num_req = np.sum(actions)
+        num_req_fs = np.sum(req_focus_mask)
+        num_non_req_fs = np.sum(non_req_focus_mask)
+        conformity_flag = 0
+        if num_req_fs >= budget:
+            # rectify focus set by setting some of the actions from one to zero; set other actions to zero
+            req_focus = np.where(req_focus_mask)[0]
+            np.random.shuffle(req_focus)
+            # print("case 1: actions before rect=", actions)
+            actions[req_focus[budget:]] = 0
+            actions[non_focus] = 0
+            # print("case 1: actions after rect=", actions)
+        elif num_non_req_fs >= (self.N - budget):
+            # rectify focus set by setting some of the actions from one to zero; set other actions to one
+            non_req_focus = np.where(non_req_focus_mask)[0]
+            np.random.shuffle(non_req_focus)
+            # print("case 2: actions before rect=", actions)
+            actions[non_req_focus[(self.N - budget):]] = 1
+            actions[non_focus] = 1
+            # print("case 2: actions after rect=", actions)
+        else:
+            # no rectify focus set; take suitable number of actions to zero and one
+            # print("case 3: actions before rect=", actions)
+            ## tie-breaking based on ID
+            if num_req > budget:
+                req_non_focus_mask = actions * (1-cur_focus_set_mask)
+                req_non_focus = np.where(req_non_focus_mask)[0]
+                # req_non_focus = np.sort(req_non_focus)
+                np.random.shuffle(req_non_focus)
+                actions[req_non_focus[(budget-num_req_fs):]] = 0
+            elif budget > num_req:
+                non_req_non_focus_mask = (1-actions) * (1-cur_focus_set_mask)
+                non_req_non_focus = np.where(non_req_non_focus_mask)[0]
+                # non_req_non_focus = np.sort(non_req_non_focus)
+                np.random.shuffle(non_req_non_focus)
+                actions[non_req_non_focus[(self.N-budget-num_non_req_fs):]] = 1
+            else:
+                pass
+            ## arbitrary actions outside the focus set
+            # np.random.shuffle(non_focus)
+            # actions[non_focus[0:(budget - num_req_fs)]] = 1
+            # actions[non_focus[(budget - num_req_fs):]] = 0
+
+            # print("non_focus={}, budget={}, num_req_fs={}".format(non_focus, budget, num_req_fs))
+            # print("non_focus_zero={}".format(non_focus[(budget - num_req_fs):-1]))
+            # print("case 3: actions after rect=", actions)
+            conformity_flag = 1
+        assert np.sum(actions) == budget
+
+        return actions, conformity_flag
+
 
 class SetOptPolicy(object):
     def __init__(self, sspa_size, y, N, act_frac, W):
@@ -819,16 +900,16 @@ class SetOptPolicy(object):
         assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
-    def get_new_focus_set(self, states):
+    def get_new_focus_set(self, cur_states):
         """
         states: length-N vector of states
         """
         s2indices = {s: None for s in self.sspa}
         s_count_scaled = np.zeros((self.sspa_size,))
         for s in self.sspa:
-            s2indices[s] = np.where(states == s)[0]
+            s2indices[s] = np.where(cur_states == s)[0]
             s_count_scaled[s] = len(s2indices[s]) / self.N
-        print("Xt([N]) = {}".format(s_count_scaled))
+        # print("Xt([N]) = {}".format(s_count_scaled))
         self.s_count_scaled = s_count_scaled
 
         constrs = []
@@ -844,14 +925,80 @@ class SetOptPolicy(object):
         objective = cp.Minimize(self.f + (self.Lw+0.1)*(1 - self.m))
         problem = cp.Problem(objective, constrs)
         problem.solve()
-        print("----set-optimization solution----")
-        print("m = {}, \n X(Dt)={}, \n m*mu={} \n abs_value_diff={}, \n Hw={}\n ".format(
-            self.m.value, self.z.value, self.m.value*self.state_probs, self.d.value, self.f.value))
+        # print("Lyapunov value = ", problem.value)
+        # print("----set-optimization solution----")
+        # print("m = {}, \n X(Dt)={}, \n m*mu={} \n abs_value_diff={}, \n Hw={}\n ".format(
+        #     self.m.value, self.z.value, self.m.value*self.state_probs, self.d.value, self.f.value))
 
-        # to finish: return a focus set
+        next_focus_set = []
+        for s in self.sspa:
+            next_s_count_fs = int(self.N * self.z.value[s])
+            next_focus_set.extend(s2indices[s][0:next_s_count_fs])
+        next_focus_set = np.array(next_focus_set, dtype=int)
+        return next_focus_set
 
-    def get_actions(self, states, cur_focus_set):
-        pass
+    def get_actions(self, cur_states, cur_focus_set):
+        """
+        :param cur_states: the current states of the arms
+        :param cur_focus_set: array of IDs denoting the arms in the focus set
+        """
+        s2indices = {state:None for state in self.sspa}
+        # count the indices of arms in each state
+        for state in self.sspa:
+            s2indices[state] = np.where(cur_states == state)[0]
+        actions = np.zeros((self.N,), dtype=np.int64)
+        for state in self.sspa:
+            actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
+
+        budget = int(self.N * self.act_frac)
+        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when alpha N
+
+        cur_focus_set_mask = np.zeros((self.N,), dtype=int)
+        cur_focus_set_mask[cur_focus_set] = 1
+        # print("cur_focus_set = {}, mask = {}", cur_focus_set, cur_focus_set_mask)
+        req_focus_mask = actions * cur_focus_set_mask
+        non_req_focus_mask = (1-actions) * cur_focus_set_mask
+        non_focus = np.where(1-cur_focus_set_mask)[0]
+        # print("actions = {}\nfocus_set_mask = {}\nreq_focus_mask = {}".format(actions, cur_focus_set_mask, req_focus_mask))
+
+        num_req = np.sum(actions)
+        num_req_fs = np.sum(req_focus_mask)
+        num_non_req_fs = np.sum(non_req_focus_mask)
+        conformity_flag = 0
+        if num_req_fs >= budget:
+            # rectify focus set by setting some of the actions from one to zero; set other actions to zero
+            req_focus = np.where(req_focus_mask)[0]
+            np.random.shuffle(req_focus)
+            # print("case 1: actions before rect=", actions)
+            actions[req_focus[budget:]] = 0
+            actions[non_focus] = 0
+            # print("case 1: actions after rect=", actions)
+        elif num_non_req_fs >= (self.N - budget):
+            # rectify focus set by setting some of the actions from one to zero; set other actions to one
+            non_req_focus = np.where(non_req_focus_mask)[0]
+            np.random.shuffle(non_req_focus)
+            # print("case 2: actions before rect=", actions)
+            actions[non_req_focus[(self.N - budget):]] = 1
+            actions[non_focus] = 1
+            # print("case 2: actions after rect=", actions)
+        else:
+            # no rectify focus set; take suitable number of actions to zero and one
+            if num_req > budget:
+                req_non_focus_mask = actions * (1-cur_focus_set_mask)
+                req_non_focus = np.where(req_non_focus_mask)[0]
+                np.random.shuffle(req_non_focus)
+                actions[req_non_focus[(budget-num_req_fs):]] = 0
+            elif budget > num_req:
+                non_req_non_focus_mask = (1-actions) * (1-cur_focus_set_mask)
+                non_req_non_focus = np.where(non_req_non_focus_mask)[0]
+                np.random.shuffle(non_req_non_focus)
+                actions[non_req_non_focus[(self.N-budget-num_non_req_fs):]] = 1
+            else:
+                pass
+            conformity_flag = 1
+        assert np.sum(actions) == budget
+
+        return actions, conformity_flag
 
 
 # def states_to_scaled_state_counts(sspa_size, N, states):

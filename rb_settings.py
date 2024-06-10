@@ -242,6 +242,30 @@ class ConveyorExample(object):
         return probs_L, probs_R, action_script, suggest_act_frac
 
 
+class NonSAExample(object):
+    def __init__(self):
+        self.sspa_size = 8
+        action_script = [1,1,1,1,1,1,0,1]
+        self.trans_tensor = np.zeros((8, 2, 8))
+        for i in range(6):
+            self.trans_tensor[i, action_script[i], i+1] = 1
+            self.trans_tensor[i, 1-action_script[i], 0] = 1
+
+        self.trans_tensor[6, action_script[6], 7] = 1/2
+        self.trans_tensor[6, action_script[6], 4] = 1/2
+        self.trans_tensor[6, 1-action_script[6], 0] = 1
+
+        self.trans_tensor[7, action_script[7], 6] = 1
+        self.trans_tensor[7, 1-action_script[7], 0] = 1
+
+        self.reward_tensor = np.zeros((8, 2))
+        for i in [4,5,6,7]:
+            self.reward_tensor[i, action_script[i]] = 1
+
+        self.suggest_act_frac = 0.6
+
+
+
 def print_bandit(setting):
     #print("generated using {} distribution".format(self.distr))
     print("state space size = ", setting.sspa_size)

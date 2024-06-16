@@ -169,7 +169,6 @@ def figure_from_multiple_files():
     #     setting_and_data = pickle.load(f)
     #     reward_array_dict[("three-states", "lppriority")] = setting_and_data["wip_avg_rewards"]
 
-
     for setting_name in settings:
         if setting_name == "eight-states":
             plt.plot(Ns, np.array([0.0125]*len(Ns)), label="upper bound", linestyle="--")

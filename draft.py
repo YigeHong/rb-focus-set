@@ -59,11 +59,11 @@ def test_W_solver():
 
 
 def test_run_policies():
-    probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
-    setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-    # setting = rb_settings.Gast20Example2()
+    # probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
+    # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    setting = rb_settings.Gast20Example2()
     # setting = rb_settings.NonSAExample()
-    N = 1000
+    N = 800
     act_frac = setting.suggest_act_frac
 
     # init_states = np.random.choice(sspa, N, replace=True)
@@ -83,7 +83,7 @@ def test_run_policies():
     setexp_policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac, W=W)
     setopt_policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
 
-    T = 2000
+    T = 1000
     total_reward = 0
     conformity_count = 0
     non_shrink_count = 0
@@ -102,7 +102,7 @@ def test_run_policies():
     # for t in range(T):
     #     cur_states = rb.get_states()
     #     focus_set, non_shrink_flag = setexp_policy.get_new_focus_set(cur_states=cur_states, last_focus_set=focus_set)
-    #     actions, conformity_flag = setexp_policy.get_actions(cur_states, focus_set)
+    #     actions, conformity_flag = setexp_policy.get_actions(cur_states, focus_set, tb_rule="priority", tb_priority=priority)
     #     conformity_count += conformity_flag
     #     non_shrink_count += non_shrink_flag
     #     instant_reward = rb.step(actions)
@@ -114,25 +114,25 @@ def test_run_policies():
     #         print("t={}\ns_fracs={}".format(t, s_fracs))
     #         print("focus set size before rounding={}, after rounding={}".format(setexp_policy.m.value*N, len(focus_set)))
     #         print("conformity count = {}, non-shrink count = {}".format(conformity_count, non_shrink_count))
-    #         ### the next block of code plots the future expected budget requirement vs the L1 norm bound starting from t
-    #         # T_ahead = 20
-    #         # Ts = np.arange(0, T_ahead)
-    #         # budget_line = np.array([act_frac] * T_ahead)
-    #         # plt.plot(Ts, budget_line, linestyle="--", label="budget")
-    #         # future_reqs =  analyzer.get_future_expected_budget_requirements(s_fracs, T_ahead)
-    #         # plt.plot(Ts, future_reqs, label="requirement")
-    #         # Lone_upper, Lone_lower = analyzer.get_future_budget_req_bounds_Lone(s_fracs, T_ahead)
-    #         # plt.plot(Ts, Lone_upper, linestyle=":", label="Lone upper")
-    #         # plt.plot(Ts, Lone_lower, linestyle=":", label="Lone lower")
-    #         # plt.legend()
-    #         # plt.show()
+            ### the next block of code plots the future expected budget requirement vs the L1 norm bound starting from t
+            # T_ahead = 20
+            # Ts = np.arange(0, T_ahead)
+            # budget_line = np.array([act_frac] * T_ahead)
+            # plt.plot(Ts, budget_line, linestyle="--", label="budget")
+            # future_reqs =  analyzer.get_future_expected_budget_requirements(s_fracs, T_ahead)
+            # plt.plot(Ts, future_reqs, label="requirement")
+            # Lone_upper, Lone_lower = analyzer.get_future_budget_req_bounds_Lone(s_fracs, T_ahead)
+            # plt.plot(Ts, Lone_upper, linestyle=":", label="Lone upper")
+            # plt.plot(Ts, Lone_lower, linestyle=":", label="Lone lower")
+            # plt.legend()
+            # plt.show()
     # print("avg reward = {}".format(total_reward / T))
     # print("avg focus set size = {}".format(total_focus_set_size / T))
     # print("non-shrinking count = {}".format(non_shrink_count))
     for t in range(T):
         cur_states = rb.get_states()
         focus_set = setopt_policy.get_new_focus_set(cur_states=cur_states) ###
-        actions, conformity_flag = setopt_policy.get_actions(cur_states, focus_set)
+        actions, conformity_flag = setopt_policy.get_actions(cur_states, focus_set, tb_rule="priority", tb_priority=priority)
         # focus_set, focus_set_outer = setopt_policy.get_new_focus_set_two_stage(cur_states=cur_states) ###
         # actions, conformity_flag = setopt_policy.get_actions_two_stage(cur_states, focus_set, focus_set_outer)
         conformity_count += conformity_flag

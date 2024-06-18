@@ -109,6 +109,26 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+            elif policy_name == "setexp-id":
+                policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
+                for t in range(T):
+                    cur_states = rb.get_states()
+                    focus_set, non_shrink_flag = policy.get_new_focus_set(cur_states=cur_states,
+                                                                          last_focus_set=focus_set)
+                    actions, conformity_flag = policy.get_actions(cur_states, focus_set, tb_rule="ID")
+                    conformity_count += conformity_flag
+                    non_shrink_count += non_shrink_flag
+                    instant_reward = rb.step(actions)
+                    total_reward += instant_reward
+            elif policy_name == "setopt-id":
+                policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
+                for t in range(T):
+                    cur_states = rb.get_states()
+                    focus_set = policy.get_new_focus_set(cur_states=cur_states)
+                    actions, conformity_flag = policy.get_actions(cur_states, focus_set, tb_rule="ID")
+                    conformity_count += conformity_flag
+                    instant_reward = rb.step(actions)
+                    total_reward += instant_reward
             elif policy_name == "ftva":
                 policy = FTVAPolicy(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, y=y, N=N,
                                     act_frac=act_frac, init_virtual=None)
@@ -154,15 +174,15 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
 
 
 def figure_from_multiple_files():
-    settings = ["eight-states", "three-states", "non-sa"] + ["random-size-3-uniform-({})".format(i) for i in range(5)]  # ["eight-states", "three-states", "non-sa"]
-    policies = ["id", "ftva", "lppriority", "setexp", "setopt"]  # ["id", "setexp", "setopt", "ftva", "lppriority"]
+    settings = ["eight-states", "three-states", "non-sa"] #+ ["random-size-3-uniform-({})".format(i) for i in range(5)]  # ["eight-states", "three-states", "non-sa"]
+    policies = ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setopt-tight"]  # ["id", "setexp", "setopt", "ftva", "lppriority"]
     reward_array_dict = {}
     Ns = np.array(list(range(100, 1100, 100)))
     init_method = "random"
 
     for setting_name in settings:
         for policy_name in policies:
-            if (policy_name in ["id", "setexp", "setopt"]) or \
+            if (policy_name in ["id", "setexp", "setopt", "setexp-id", "setopt-id", "setopt-tight"]) or \
                     (setting_name not in ["eight-states", "three-states"]):
                 with open("fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, 100, 1000, init_method), 'rb') as f:
                     setting_and_data = pickle.load(f)
@@ -213,9 +233,13 @@ def figure_from_multiple_files():
 
 
 if __name__ == "__main__":
-    for setting_name in ["eight-states", "three-states", "non-sa"]:   #["eight-states", "three-states", "non-sa"]:
-        for policy_name in ["setopt-tight"]:
-            run_policies(setting_name, policy_name, "random", 10000)
+    # tic = time.time()
+    # for setting_name in ["eight-states", "three-states", "non-sa"]:   #["eight-states", "three-states", "non-sa"]:
+    #     for policy_name in ["setexp-id", "setopt-id"]:
+    #         run_policies(setting_name, policy_name, "random", 10000)
+    # toc = time.time()
+    # time_per_point = (toc - tic) / 66
+    # print("when T=10000, time per data point for setopt-id / setexp-id =", time_per_point)
     #
     # # ## random examples
     # for i in range(5):
@@ -226,5 +250,5 @@ if __name__ == "__main__":
     #     for policy_name in ["setexp", "setopt"]:
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
-    # figure_from_multiple_files()
+    figure_from_multiple_files()
 

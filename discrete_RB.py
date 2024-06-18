@@ -845,11 +845,20 @@ class SetExpansionPolicy(object):
         # print("state count = ", self.z.value * self.N, "states = ", cur_states, "focus set = ", next_focus_set)
         return next_focus_set, non_shrink_flag
 
-    def get_actions(self, cur_states, cur_focus_set):
+    def get_actions(self, cur_states, cur_focus_set, tb_rule="random", tb_priority=None):
         """
         :param cur_states: the current states of the arms
         :param cur_focus_set: array of IDs denoting the arms in the focus set
+        :param tb_rule: random, ID, priority, which defines the tie breaking within and out of the focus set
+        :param rb_priority: np.array, defining the priority of states if tb_rule == priority, range from 1,2,3..|S|,
+                            smaller number means higher priority
         """
+        # make sure priority >=1, for the convenience of later operations
+        if tb_rule == "priority":
+            tb_priority = np.array(tb_priority)
+            tb_priority += 1
+            assert np.all(tb_priority >= 1)
+
         s2indices = {state:None for state in self.sspa}
         # count the indices of arms in each state
         for state in self.sspa:
@@ -876,19 +885,42 @@ class SetExpansionPolicy(object):
         if num_req_fs >= budget:
             # rectify focus set by setting some of the actions from one to zero; set other actions to zero
             req_focus = np.where(req_focus_mask)[0]
-            np.random.shuffle(req_focus)
-            # print("case 1: actions before rect=", actions)
-            actions[req_focus[budget:]] = 0
+            if tb_rule == "random":
+                np.random.shuffle(req_focus)
+                actions[req_focus[budget:]] = 0
+            elif tb_rule == "ID":
+                req_focus = np.sort(req_focus)
+                actions[req_focus[budget:]] = 0
+            elif tb_rule == "priority":
+                # find priority of arms using tb_priority
+                arm_priorities = tb_priority[cur_states]
+                # focus on the arms outside focus set and requesting pulls
+                arm_priorities = arm_priorities * req_focus_mask
+                sorted_indices = np.argsort(arm_priorities)
+                actions[sorted_indices[(self.N-(num_req_fs-budget)):]] = 0 ####
+            else:
+                raise NotImplementedError
             actions[non_focus] = 0
-            # print("case 1: actions after rect=", actions)
         elif num_non_req_fs >= (self.N - budget):
             # rectify focus set by setting some of the actions from one to zero; set other actions to one
             non_req_focus = np.where(non_req_focus_mask)[0]
-            np.random.shuffle(non_req_focus)
-            # print("case 2: actions before rect=", actions)
-            actions[non_req_focus[(self.N - budget):]] = 1
+            if tb_rule == "random":
+                np.random.shuffle(non_req_focus)
+                actions[non_req_focus[(self.N - budget):]] = 1
+            elif tb_rule == "ID":
+                non_req_focus = np.sort(non_req_focus)
+                actions[non_req_focus[(self.N - budget):]] = 1
+            elif tb_rule == "priority":
+                # find priority of arms using tb_priority
+                arm_priorities = tb_priority[cur_states]
+                # focus on the arms outside focus set and requesting pulls
+                arm_priorities = arm_priorities * non_req_focus_mask
+                sorted_indices = np.argsort(arm_priorities)
+                actions[sorted_indices[self.N-(num_non_req_fs+budget-self.N):]] = 1
+                # print(num_non_req_fs - (self.N - budget), len(sorted_indices[-(num_non_req_fs+budget-self.N):]))
+            else:
+                raise NotImplementedError
             actions[non_focus] = 1
-            # print("case 2: actions after rect=", actions)
         else:
             # no rectify focus set; take suitable number of actions to zero and one
             # print("case 3: actions before rect=", actions)
@@ -896,27 +928,43 @@ class SetExpansionPolicy(object):
             if num_req > budget:
                 req_non_focus_mask = actions * (1-cur_focus_set_mask)
                 req_non_focus = np.where(req_non_focus_mask)[0]
-                # req_non_focus = np.sort(req_non_focus)
-                np.random.shuffle(req_non_focus)
-                actions[req_non_focus[(budget-num_req_fs):]] = 0
+                if tb_rule == "random":
+                    np.random.shuffle(req_non_focus)
+                    actions[req_non_focus[(budget-num_req_fs):]] = 0
+                elif tb_rule == "ID":
+                    req_non_focus = np.sort(req_non_focus)
+                    actions[req_non_focus[(budget-num_req_fs):]] = 0
+                elif tb_rule == "priority":
+                    # find priority of arms using tb_priority
+                    arm_priorities = tb_priority[cur_states]
+                    # focus on the arms outside focus set and requesting pulls
+                    arm_priorities = arm_priorities * req_non_focus_mask
+                    sorted_indices = np.argsort(arm_priorities)
+                    actions[sorted_indices[-(num_req-budget):]] = 0
+                else:
+                    raise NotImplementedError
             elif budget > num_req:
                 non_req_non_focus_mask = (1-actions) * (1-cur_focus_set_mask)
                 non_req_non_focus = np.where(non_req_non_focus_mask)[0]
-                # non_req_non_focus = np.sort(non_req_non_focus)
-                np.random.shuffle(non_req_non_focus)
-                actions[non_req_non_focus[(self.N-budget-num_non_req_fs):]] = 1
+                if tb_rule == "random":
+                    np.random.shuffle(non_req_non_focus)
+                    actions[non_req_non_focus[(self.N-budget-num_non_req_fs):]] = 1
+                elif tb_rule == "ID":
+                    req_non_focus = np.sort(non_req_non_focus)
+                    actions[non_req_non_focus[(self.N-budget-num_non_req_fs):]] = 1
+                elif tb_rule == "priority":
+                    # find priority of arms using tb_priority
+                    arm_priorities = tb_priority[cur_states]
+                    # focus on the arms outside focus set and requesting pulls
+                    arm_priorities = arm_priorities * non_req_non_focus_mask
+                    sorted_indices = np.argsort(arm_priorities)
+                    actions[sorted_indices[-(budget-num_req):]] = 1 ####
+                else:
+                    raise NotImplementedError
             else:
                 pass
-            ## arbitrary actions outside the focus set
-            # np.random.shuffle(non_focus)
-            # actions[non_focus[0:(budget - num_req_fs)]] = 1
-            # actions[non_focus[(budget - num_req_fs):]] = 0
-
-            # print("non_focus={}, budget={}, num_req_fs={}".format(non_focus, budget, num_req_fs))
-            # print("non_focus_zero={}".format(non_focus[(budget - num_req_fs):-1]))
-            # print("case 3: actions after rect=", actions)
             conformity_flag = 1
-        assert np.sum(actions) == budget
+        assert np.sum(actions) == budget, "np.sum(actions)={}, budget={}".format(np.sum(actions), budget)
 
         return actions, conformity_flag
 
@@ -935,7 +983,7 @@ class SetOptPolicy(object):
         self.y = y
         self.W = W
         self.W_sqrt = scipy.linalg.sqrtm(W)
-        self.Lw = 2 * np.linalg.norm(W, ord=2) ## we add a small amount to ensure that the returned value is ...
+        self.Lw = 2 * np.linalg.norm(W, ord=2)
         self.EPS = 1e-7
         # # the focus set, represented as an array of IDs of the arms
         # self.focus_set = np.array([])
@@ -968,9 +1016,9 @@ class SetOptPolicy(object):
 
         self.cpibs = self.policy[:,1]
         self.ratiocw = np.sqrt(np.matmul(self.cpibs.T, np.linalg.solve(self.W, self.cpibs)))
-        print("W=", self.W)
-        print("cpibs=", self.cpibs)
-        print("ratiocw=", self.ratiocw)
+        # print("W=", self.W)
+        # print("cpibs=", self.cpibs)
+        # print("ratiocw=", self.ratiocw)
 
     def get_new_focus_set(self, cur_states, subproblem="L1"):
         """
@@ -1052,11 +1100,20 @@ class SetOptPolicy(object):
         next_focus_set = np.array(next_focus_set, dtype=int)
         return next_focus_set
 
-    def get_actions(self, cur_states, cur_focus_set):
+    def get_actions(self, cur_states, cur_focus_set, tb_rule="random", tb_priority=None):
         """
         :param cur_states: the current states of the arms
         :param cur_focus_set: array of IDs denoting the arms in the focus set
+        :param tb_rule: random, ID, priority, which defines the tie breaking within and out of the focus set
+        :param rb_priority: np.array, defining the priority of states if tb_rule == priority, range from 1,2,3..|S|,
+                            smaller number means higher priority
         """
+        # make sure priority >=1, for the convenience of later operations
+        if tb_rule == "priority":
+            tb_priority = np.array(tb_priority)
+            tb_priority += 1
+            assert np.all(tb_priority >= 1)
+
         s2indices = {state:None for state in self.sspa}
         # count the indices of arms in each state
         for state in self.sspa:
@@ -1083,35 +1140,86 @@ class SetOptPolicy(object):
         if num_req_fs >= budget:
             # rectify focus set by setting some of the actions from one to zero; set other actions to zero
             req_focus = np.where(req_focus_mask)[0]
-            np.random.shuffle(req_focus)
-            # print("case 1: actions before rect=", actions)
-            actions[req_focus[budget:]] = 0
+            if tb_rule == "random":
+                np.random.shuffle(req_focus)
+                actions[req_focus[budget:]] = 0
+            elif tb_rule == "ID":
+                req_focus = np.sort(req_focus)
+                actions[req_focus[budget:]] = 0
+            elif tb_rule == "priority":
+                # find priority of arms using tb_priority
+                arm_priorities = tb_priority[cur_states]
+                # focus on the arms outside focus set and requesting pulls
+                arm_priorities = arm_priorities * req_focus_mask
+                sorted_indices = np.argsort(arm_priorities)
+                actions[sorted_indices[(self.N-(num_req_fs-budget)):]] = 0 ####
+            else:
+                raise NotImplementedError
             actions[non_focus] = 0
-            # print("case 1: actions after rect=", actions)
         elif num_non_req_fs >= (self.N - budget):
             # rectify focus set by setting some of the actions from one to zero; set other actions to one
             non_req_focus = np.where(non_req_focus_mask)[0]
-            np.random.shuffle(non_req_focus)
-            # print("case 2: actions before rect=", actions)
-            actions[non_req_focus[(self.N - budget):]] = 1
+            if tb_rule == "random":
+                np.random.shuffle(non_req_focus)
+                actions[non_req_focus[(self.N - budget):]] = 1
+            elif tb_rule == "ID":
+                non_req_focus = np.sort(non_req_focus)
+                actions[non_req_focus[(self.N - budget):]] = 1
+            elif tb_rule == "priority":
+                # find priority of arms using tb_priority
+                arm_priorities = tb_priority[cur_states]
+                # focus on the arms outside focus set and requesting pulls
+                arm_priorities = arm_priorities * non_req_focus_mask
+                sorted_indices = np.argsort(arm_priorities)
+                actions[sorted_indices[self.N-(num_non_req_fs+budget-self.N):]] = 1
+                # print(num_non_req_fs - (self.N - budget), len(sorted_indices[-(num_non_req_fs+budget-self.N):]))
+            else:
+                raise NotImplementedError
             actions[non_focus] = 1
-            # print("case 2: actions after rect=", actions)
         else:
             # no rectify focus set; take suitable number of actions to zero and one
+            # print("case 3: actions before rect=", actions)
+            ## tie-breaking based on ID
             if num_req > budget:
                 req_non_focus_mask = actions * (1-cur_focus_set_mask)
                 req_non_focus = np.where(req_non_focus_mask)[0]
-                np.random.shuffle(req_non_focus)
-                actions[req_non_focus[(budget-num_req_fs):]] = 0
+                if tb_rule == "random":
+                    np.random.shuffle(req_non_focus)
+                    actions[req_non_focus[(budget-num_req_fs):]] = 0
+                elif tb_rule == "ID":
+                    req_non_focus = np.sort(req_non_focus)
+                    actions[req_non_focus[(budget-num_req_fs):]] = 0
+                elif tb_rule == "priority":
+                    # find priority of arms using tb_priority
+                    arm_priorities = tb_priority[cur_states]
+                    # focus on the arms outside focus set and requesting pulls
+                    arm_priorities = arm_priorities * req_non_focus_mask
+                    sorted_indices = np.argsort(arm_priorities)
+                    actions[sorted_indices[-(num_req-budget):]] = 0
+                else:
+                    raise NotImplementedError
             elif budget > num_req:
                 non_req_non_focus_mask = (1-actions) * (1-cur_focus_set_mask)
                 non_req_non_focus = np.where(non_req_non_focus_mask)[0]
-                np.random.shuffle(non_req_non_focus)
-                actions[non_req_non_focus[(self.N-budget-num_non_req_fs):]] = 1
+                if tb_rule == "random":
+                    np.random.shuffle(non_req_non_focus)
+                    actions[non_req_non_focus[(self.N-budget-num_non_req_fs):]] = 1
+                elif tb_rule == "ID":
+                    req_non_focus = np.sort(non_req_non_focus)
+                    actions[non_req_non_focus[(self.N-budget-num_non_req_fs):]] = 1
+                elif tb_rule == "priority":
+                    # find priority of arms using tb_priority
+                    arm_priorities = tb_priority[cur_states]
+                    # focus on the arms outside focus set and requesting pulls
+                    arm_priorities = arm_priorities * non_req_non_focus_mask
+                    sorted_indices = np.argsort(arm_priorities)
+                    actions[sorted_indices[-(budget-num_req):]] = 1 ####
+                else:
+                    raise NotImplementedError
             else:
                 pass
             conformity_flag = 1
-        assert np.sum(actions) == budget
+        assert np.sum(actions) == budget, "np.sum(actions)={}, budget={}".format(np.sum(actions), budget)
 
         return actions, conformity_flag
 
@@ -1213,6 +1321,114 @@ class SetOptPolicy(object):
         assert np.sum(actions) == budget
 
         return actions, conformity_flag
+
+
+def TwoSetPolicy(object):
+    def __init__(self, sspa_size, y, N, act_frac, U, eta):
+        self.sspa_size = sspa_size
+        self.sspa = np.array(list(range(self.sspa_size)))
+        self.aspa = np.array([0, 1])
+        self.sa_pairs = []
+        for action in self.aspa:
+            self.sa_pairs = self.sa_pairs + [(state, action) for state in self.sspa]
+
+        self.N = N
+        self.act_frac = act_frac
+        self.y = y
+        # self.W = W
+        # self.W_sqrt = scipy.linalg.sqrtm(W)
+        self.U = U
+        self.U_sqrt = scipy.linalg.sqrtm(U)
+        # self.Lw = 2 * np.linalg.norm(W, ord=2)
+        # self.Lu = 2 * np.linalg.norm(U, ord=2)
+        self.eta = eta
+
+        self.EPS = 1e-7
+        # # the focus set, represented as an array of IDs of the arms
+        # self.focus_set = np.array([])
+
+        # variables and parameters
+        self.z = cp.Variable(self.sspa_size)
+        self.m = cp.Variable()
+        self.f = cp.Variable()
+        self.s_count_scaled = cp.Parameter(self.sspa_size)
+        self.beta = cp.Parameter()
+        self.beta = min(act_frac, 1-act_frac)
+        self.state_probs = cp.Parameter(self.sspa_size)
+
+        # get the randomized policy from the solution y
+        self.state_probs = np.sum(self.y, axis=1)
+        self.policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
+        for state in self.sspa:
+            if self.state_probs[state] > self.EPS:
+                self.policy[state, :] = self.y[state, :] / self.state_probs[state]
+            else:
+                self.policy[state, 0] = 0.5
+                self.policy[state, 1] = 0.5
+        assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
+            "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
+
+        # self.cpibs = self.policy[:,1]
+        # self.ratiocw = np.sqrt(np.matmul(self.cpibs.T, np.linalg.solve(self.W, self.cpibs)))
+        # print("W=", self.W)
+        # print("cpibs=", self.cpibs)
+        # print("ratiocw=", self.ratiocw)
+
+    def get_new_focus_set(self, cur_states, last_OL_set):
+        states_fs = cur_states[last_OL_set]
+        s2indices = {s: None for s in self.sspa}
+        s2indices_fs = {s: None for s in self.sspa} # state to indices map in the focus set
+        s_count_scaled = np.zeros((self.sspa_size,))
+        s_count_scaled_fs = np.zeros((self.sspa_size,))
+        for s in self.sspa:
+            s2indices[s] = np.where(cur_states == s)[0]
+            s2indices_fs[s] = np.where(states_fs == s)[0]
+            s_count_scaled[s] = len(s2indices[s]) / self.N
+            s_count_scaled_fs[s] = len(s2indices_fs[s]) / self.N
+        # print("Xt([N]) = {}, Xt(D(t-1)) = {}".format(s_count_scaled, s_count_scaled_fs))
+        self.s_count_scaled = s_count_scaled
+        self.s_count_scaled_fs = s_count_scaled_fs
+
+        cur_m = len(last_OL_set)/self.N
+        # first solve for the D^{OL}_temp
+        # todo: multiply by 0.5?
+        x_minus_mmu = s_count_scaled_fs - cur_m * self.state_probs
+        cur_delta = self.eta*cur_m - np.sqrt(np.matmul(np.matmul(x_minus_mmu.T, self.U), x_minus_mmu))
+        if cur_delta >= 0:
+            z_temp = s_count_scaled_fs
+        else:
+            # shrink the OL set
+            constrs = []
+            constrs.append(self.z >= 0)
+            constrs.append(self.z <= self.s_count_scaled_fs)
+            constrs.append(self.m == cp.sum(self.z))
+            constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.z - self.m*self.state_probs)))
+            objective = cp.Maximize(self.m)
+            problem = cp.Problem(objective, constrs)
+            problem.solve()
+            z_temp = self.z.value.copy()
+        # then solve for the next OL set
+        constrs = []
+        constrs.append(self.z >= 0)
+        constrs.append(self.z <= self.s_count_scaled)
+        constrs.append(self.m == cp.sum(self.z))
+        constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.z - self.m*self.state_probs)))
+        objective = cp.Maximize(self.m)
+        problem = cp.Problem(objective, constrs)
+        problem.solve()
+        z_OL = self.z.value.copy()
+
+        next_OL_set = []
+        for s in self.sspa:
+            next_s_count_fs = int(self.N * z_OL[s])
+            next_OL_set.extend(s2indices[s][0:next_s_count_fs])
+        next_OL_set = np.array(next_OL_set, dtype=int)
+        # print("state count = ", self.z.value * self.N, "states = ", cur_states, "focus set = ", next_focus_set)
+        return next_OL_set
+
+    def get_actions(self, cur_states, cur_OL_set):
+        pass
+
 
 
 # def states_to_scaled_state_counts(sspa_size, N, states):

@@ -59,10 +59,10 @@ def test_W_solver():
 
 
 def test_run_policies():
-    # probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
-    # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
+    setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
     # setting = rb_settings.Gast20Example2()
-    setting = rb_settings.NonSAExample()
+    # setting = rb_settings.NonSAExample()
     N = 1000
     act_frac = setting.suggest_act_frac
 
@@ -131,10 +131,10 @@ def test_run_policies():
     # print("non-shrinking count = {}".format(non_shrink_count))
     for t in range(T):
         cur_states = rb.get_states()
-        # focus_set = setopt_policy.get_new_focus_set(cur_states=cur_states) ###
-        # actions, conformity_flag = setopt_policy.get_actions(cur_states, focus_set)
-        focus_set, focus_set_outer = setopt_policy.get_new_focus_set_two_stage(cur_states=cur_states) ###
-        actions, conformity_flag = setopt_policy.get_actions_two_stage(cur_states, focus_set, focus_set_outer)
+        focus_set = setopt_policy.get_new_focus_set(cur_states=cur_states) ###
+        actions, conformity_flag = setopt_policy.get_actions(cur_states, focus_set)
+        # focus_set, focus_set_outer = setopt_policy.get_new_focus_set_two_stage(cur_states=cur_states) ###
+        # actions, conformity_flag = setopt_policy.get_actions_two_stage(cur_states, focus_set, focus_set_outer)
         conformity_count += conformity_flag
         instant_reward = rb.step(actions)
         total_reward += instant_reward

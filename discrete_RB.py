@@ -764,11 +764,12 @@ class SetExpansionPolicy(object):
         assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
-        self.cpibs = self.policy[:,1]
-        self.ratiocw = np.sqrt(np.matmul(self.cpibs.T, np.linalg.solve(self.W, self.cpibs)))
-        print("W=", self.W)
-        print("cpibs=", self.cpibs)
-        print("ratiocw=", self.ratiocw)
+        if W is not None:
+            self.cpibs = self.policy[:,1]
+            self.ratiocw = np.sqrt(np.matmul(self.cpibs.T, np.linalg.solve(self.W, self.cpibs)))
+            print("W=", self.W)
+            print("cpibs=", self.cpibs)
+            print("ratiocw=", self.ratiocw)
 
     def get_new_focus_set(self, cur_states, last_focus_set, subproblem="L1"):
         """
@@ -791,7 +792,8 @@ class SetExpansionPolicy(object):
 
         if subproblem == "L1":
             cur_m = len(last_focus_set)/self.N
-            cur_delta = self.beta*(1-cur_m) - np.linalg.norm(s_count_scaled_fs - cur_m * self.state_probs, ord=1)
+            ## 0617 update: multiply 0.5 in the L1 norm
+            cur_delta = self.beta*(1-cur_m) - 0.5*np.linalg.norm(s_count_scaled_fs - cur_m * self.state_probs, ord=1)
             constrs = []
             non_shrink_flag = 0
             if cur_delta > 0:
@@ -804,7 +806,8 @@ class SetExpansionPolicy(object):
             constrs.append(self.m == cp.sum(self.z))
             constrs.append(self.z - self.m*self.state_probs <= self.d)
             constrs.append(- self.z + self.m*self.state_probs <= self.d)
-            constrs.append(cp.sum(self.d) <= self.beta * (1-self.m))
+            ## 0617 update: multiply 0.5 in the L1 norm
+            constrs.append(0.5*cp.sum(self.d) <= self.beta * (1-self.m))
             objective = cp.Maximize(self.m)
             problem = cp.Problem(objective, constrs)
             problem.solve()
@@ -813,6 +816,7 @@ class SetExpansionPolicy(object):
         elif subproblem == "W":
             cur_m = len(last_focus_set)/self.N
             x_minus_mmu = s_count_scaled_fs - cur_m * self.state_probs
+            ## todo: check if it also needs to multiply by 2 here
             cur_delta = self.beta*(1-cur_m) - self.ratiocw * np.sqrt(np.matmul(np.matmul(x_minus_mmu.T, self.W), x_minus_mmu))
             constrs = []
             non_shrink_flag = 0
@@ -941,6 +945,10 @@ class SetOptPolicy(object):
         self.m = cp.Variable()
         self.d = cp.Variable(self.sspa_size)
         self.f = cp.Variable()
+        self.lam_up = cp.Variable()
+        self.lam_low = cp.Variable()
+        self.gamma_up = cp.Variable(self.sspa_size)
+        self.gamma_low = cp.Variable(self.sspa_size)
         self.s_count_scaled = cp.Parameter(self.sspa_size)
         self.beta = cp.Parameter()
         self.beta = min(act_frac, 1-act_frac)
@@ -985,7 +993,8 @@ class SetOptPolicy(object):
             constrs.append(self.m == cp.sum(self.z))
             constrs.append(self.z - self.m*self.state_probs <= self.d)
             constrs.append(- self.z + self.m*self.state_probs <= self.d)
-            constrs.append(cp.sum(self.d) <= self.beta * (1-self.m))
+            ## 0617 update: multiply 0.5 in front of the L1 norm
+            constrs.append(0.5*cp.sum(self.d) <= self.beta * (1-self.m))
             objective = cp.Minimize(self.f + (self.Lw+0.1)*(1 - self.m))
             problem = cp.Problem(objective, constrs)
             problem.solve()
@@ -995,6 +1004,7 @@ class SetOptPolicy(object):
             #     self.m.value, self.z.value, self.m.value*self.state_probs, self.d.value, self.f.value))
         elif subproblem == "W":
             constrs = []
+            ## todo: check if it also needs to multiply by 0.5 here
             constrs.append(cp.SOC(self.beta*(1-self.m)/self.ratiocw, self.W_sqrt @ (self.z - self.m * self.state_probs)))
             constrs.append(self.z <= self.s_count_scaled)
             constrs.append(self.z >= 0)
@@ -1010,6 +1020,25 @@ class SetOptPolicy(object):
             constrs.append(self.m == cp.sum(self.z))
             constrs.append(np.matmul(self.cpibs.T, self.z) <= self.act_frac)
             constrs.append(np.matmul(self.cpibs.T, self.z) >= self.act_frac - (1-self.m))
+            objective = cp.Minimize(self.f + (self.Lw+0.1)*(1 - self.m))
+            problem = cp.Problem(objective, constrs)
+            problem.solve()
+        elif subproblem == "tight":
+            constrs = []
+            # second order cone constraint: norm{sqrt(W) @ (z- m * mu)}_2 <= self.f
+            constrs.append(cp.SOC(self.f, self.W_sqrt @ (self.z - self.m * self.state_probs)))
+            constrs.append(self.z <= self.s_count_scaled)
+            constrs.append(self.z >= 0)
+            constrs.append(self.m == cp.sum(self.z))
+            # future budget requirement upper bound
+            constrs.append(self.act_frac*self.lam_up + cp.sum(self.gamma_up) <= self.act_frac)
+            constrs.append(self.state_probs*self.lam_up + self.gamma_up >= self.z)
+            constrs.append(self.gamma_up >= 0)
+            # future budget requirement lower bound
+            constrs.append(self.act_frac*self.lam_low + cp.sum(self.gamma_low) + (1-self.m) >= self.act_frac)
+            constrs.append(self.state_probs*self.lam_low + self.gamma_low <= self.z)
+            constrs.append(self.gamma_low >= 0)
+            # objective
             objective = cp.Minimize(self.f + (self.Lw+0.1)*(1 - self.m))
             problem = cp.Problem(objective, constrs)
             problem.solve()
@@ -1104,7 +1133,8 @@ class SetOptPolicy(object):
             constrs.append(self.m == cp.sum(self.z))
             constrs.append(self.z - self.m*self.state_probs <= self.d)
             constrs.append(- self.z + self.m*self.state_probs <= self.d)
-            constrs.append(cp.sum(self.d) <= self.beta * (1-self.m))
+            ## 0617 update: multiply 0.5 in from of the L1 norm
+            constrs.append(0.5*cp.sum(self.d) <= self.beta * (1-self.m))
             objective = cp.Minimize(self.f + (self.Lw+0.1)*(1 - self.m))
             problem = cp.Problem(objective, constrs)
             problem.solve()

@@ -94,6 +94,8 @@ class RandomExample(object):
         P1 = P1 / np.sum(P1, axis=1, keepdims=True)
         self.trans_tensor = np.stack([P0, P1], axis=1) # dimensions (state, action, next_state)
         self.reward_tensor = np.stack([R0, R1], axis=1) # dimensions (state, action)
+        # make sure alpha is not too close to 0 or 1
+        self.suggest_act_frac = np.random.uniform(0.1,0.9)
 
         if verbose:
             print("P0 = ", P0)
@@ -112,6 +114,7 @@ class ExampleFromFile(object):
         self.trans_tensor = data_dict["trans_tensor"]
         self.reward_tensor = data_dict["reward_tensor"]
         self.distr = data_dict["distr"]
+        self.suggest_act_frac = data_dict["suggest_act_frac"]
 
 
 class ConveyorExample(object):
@@ -281,14 +284,21 @@ def save_bandit(setting, f_path, other_params):
     data_dict = {"sspa_size": setting.sspa_size,
          "trans_tensor": setting.trans_tensor,
          "reward_tensor": setting.reward_tensor,
-         "distr": setting.distr
+         "distr": setting.distr,
+         "suggest_act_frac": setting.suggest_act_frac
          }
-    data_dict.update(other_params)
+    if other_params is not None:
+        data_dict.update(other_params)
     with open(f_path, 'wb') as f:
         pickle.dump(data_dict, f)
 
 
 if __name__ == '__main__':
-    example1 = Gast20Example1()
-    print(example1.trans_tensor[0, 1,:])
-    print(example1.reward_tensor[1, 1])
+    # generate and save some random settings
+    np.random.seed(114514)
+    sspa_size = 3
+    distr = "uniform"
+    for i in range(5):
+        setting = RandomExample(sspa_size, distr)
+        f_path = "setting_data/random-size-{}-{}-({})".format(sspa_size, distr, i)
+        save_bandit(setting, f_path, None)

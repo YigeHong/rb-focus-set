@@ -61,10 +61,12 @@ def test_W_solver():
 def test_run_policies():
     # probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
     # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-    setting = rb_settings.Gast20Example2()
+    # setting = rb_settings.Gast20Example2()
     # setting = rb_settings.NonSAExample()
+    setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(4)")
     N = 800
     act_frac = setting.suggest_act_frac
+    rb_settings.print_bandit(setting)
 
     # init_states = np.random.choice(sspa, N, replace=True)
     # rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states=init_states)
@@ -75,6 +77,10 @@ def test_run_policies():
     print("W=", W)
     priority = analyzer.solve_LP_Priority()
     print("LP Priority=", priority)
+    U = analyzer.compute_U(abstol=1e-10)[0]
+    print("U=\n", U)
+    pre_eta = analyzer.compute_pre_eta(U)
+    print("pre_eta=", pre_eta)
 
     init_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
     rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
@@ -82,13 +88,16 @@ def test_run_policies():
     id_policy = IDPolicy(setting.sspa_size, y, N, act_frac)
     setexp_policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac, W=W)
     setopt_policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
+    twoset_policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U, pre_eta)
 
     T = 1000
     total_reward = 0
     conformity_count = 0
     non_shrink_count = 0
     focus_set =np.array([], dtype=int)
+    OL_set =np.array([], dtype=int)
     total_focus_set_size = 0
+    total_OL_set_size = 0
     # for t in range(T):
     #     cur_states = rb.get_states()
     #     actions = id_policy.get_actions(cur_states)
@@ -129,24 +138,38 @@ def test_run_policies():
     # print("avg reward = {}".format(total_reward / T))
     # print("avg focus set size = {}".format(total_focus_set_size / T))
     # print("non-shrinking count = {}".format(non_shrink_count))
+    # for t in range(T):
+    #     cur_states = rb.get_states()
+    #     focus_set = setopt_policy.get_new_focus_set(cur_states=cur_states) ###
+    #     actions, conformity_flag = setopt_policy.get_actions(cur_states, focus_set, tb_rule="priority", tb_priority=priority)
+    #     # focus_set, focus_set_outer = setopt_policy.get_new_focus_set_two_stage(cur_states=cur_states) ###
+    #     # actions, conformity_flag = setopt_policy.get_actions_two_stage(cur_states, focus_set, focus_set_outer)
+    #     conformity_count += conformity_flag
+    #     instant_reward = rb.step(actions)
+    #     total_reward += instant_reward
+    #     total_focus_set_size += len(focus_set)
+    #     if t%100 == 0:
+    #         sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
+    #         s_fracs = np.sum(sa_fracs, axis=1)
+    #         print("t={}\ns_fracs={}".format(t, s_fracs))
+    #         print("focus set size before rounding={}, after rounding={}".format(setopt_policy.m.value*N, len(focus_set)))
+    #         print("conformity count = {}".format(conformity_count))
+    # print("avg reward = {}".format(total_reward / T))
+    # print("avg focus set size = {}".format(total_focus_set_size / T))
     for t in range(T):
         cur_states = rb.get_states()
-        focus_set = setopt_policy.get_new_focus_set(cur_states=cur_states) ###
-        actions, conformity_flag = setopt_policy.get_actions(cur_states, focus_set, tb_rule="priority", tb_priority=priority)
-        # focus_set, focus_set_outer = setopt_policy.get_new_focus_set_two_stage(cur_states=cur_states) ###
-        # actions, conformity_flag = setopt_policy.get_actions_two_stage(cur_states, focus_set, focus_set_outer)
-        conformity_count += conformity_flag
+        OL_set = twoset_policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set) ###
+        actions = twoset_policy.get_actions(cur_states, OL_set)
         instant_reward = rb.step(actions)
         total_reward += instant_reward
-        total_focus_set_size += len(focus_set)
+        total_OL_set_size += len(OL_set)
         if t%100 == 0:
             sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
             s_fracs = np.sum(sa_fracs, axis=1)
             print("t={}\ns_fracs={}".format(t, s_fracs))
-            print("focus set size before rounding={}, after rounding={}".format(setopt_policy.m.value*N, len(focus_set)))
-            print("conformity count = {}".format(conformity_count))
+            print("OL set size before rounding={}, after rounding={}".format(twoset_policy.m.value*N, len(OL_set)))
     print("avg reward = {}".format(total_reward / T))
-    print("avg focus set size = {}".format(total_focus_set_size / T))
+    print("avg OL set size = {}".format(total_OL_set_size / T))
 
 
 def test_compute_future_max_req():
@@ -215,16 +238,13 @@ def test_compute_future_max_req():
 
 np.random.seed(114514)
 np.set_printoptions(precision=2)
-# test_repeated_solver()
-# test_W_solver()
 test_run_policies()
-# test_compute_future_max_req()
 
 
-# print(np.argsort(np.random.random(10,)))
 
-#
+
 # A = np.array([1,2,9,4,5,6,7])
+# print(A[-3:])
 # print(A[-3-1:-1])
 # print(A[-3:])
 # print(np.sort(A))

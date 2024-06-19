@@ -196,6 +196,9 @@ class SingleArmAnalyzer(object):
         return relaxed_objective
 
     def solve_lp(self):
+        """
+        run this before doing anything
+        """
         objective = self.get_objective()
         constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
         problem = cp.Problem(objective, constrs)
@@ -223,80 +226,6 @@ class SingleArmAnalyzer(object):
             self.Ppibs += self.trans_tensor[:,a,:]*np.expand_dims(self.policy[:,a], axis=1)
 
         return (self.opt_value, self.y.value)
-
-    def print_Phi(self):
-        y = self.y.value
-        ind_neu = np.where(np.all([y[:,0] > self.EPS, y[:,1] > self.EPS],axis=0))[0]
-        print("ind_neu=", ind_neu)
-
-        Phi = self.Ppibs -  np.outer(np.ones((self.sspa_size,)), self.state_probs) \
-                - np.outer(self.policy[:,1] - self.act_frac * np.ones((self.sspa_size,)), self.trans_tensor[ind_neu,1,:] - self.trans_tensor[ind_neu,0,:])
-        moduli = [np.absolute(lam) for lam in np.linalg.eigvals(Phi)]
-        spec_rad = max(moduli)
-
-        print(self.policy[:,1] - self.act_frac * np.ones((self.sspa_size,)))
-
-        print("P1=", self.trans_tensor[:,1,:])
-        print("P0=", self.trans_tensor[:,0,:])
-        print("Ppibs=", self.Ppibs)
-        print("Phi=", Phi)
-        print("moduli=", moduli)
-
-    def compute_W(self, abstol):
-        Ppibs_centered = self.Ppibs - np.outer(np.ones((self.sspa_size,)), self.state_probs)
-        W = np.zeros((self.sspa_size, self.sspa_size))
-        P_power = np.eye(self.sspa_size)
-        # calculate W, test tolerance level
-        iters = 0
-        while True:
-            W += np.matmul(P_power, P_power.T)
-            P_power = np.matmul(Ppibs_centered, P_power)
-            P_power_norm = np.linalg.norm(P_power)
-            W_norm = np.linalg.norm(W, ord=2)
-            # print("P_power_norm=", P_power_norm, "W_norm=", W_norm)
-            spn_error = W_norm * P_power_norm**2 / (1-P_power_norm**2)
-            iters += 1
-            if (P_power_norm < 1) and (spn_error < abstol):
-                break
-        print("W computed after expanding {} terms".format(iters))
-        return W, spn_error
-
-    def get_future_expected_budget_requirements(self, state_dist, T_ahead):
-        cur_state_dist = state_dist
-        budget_reqs = []
-        for t in range(T_ahead):
-            budget_reqs.append(np.matmul(self.policy[:,1].T, cur_state_dist))
-            cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
-        return budget_reqs
-
-    def get_future_budget_req_bounds_Lone(self, state_dist, T_ahead):
-        beta = min(self.act_frac, 1-self.act_frac)
-        cur_state_dist = state_dist
-        upper_bounds = []
-        lower_bounds = []
-        for t in range(T_ahead):
-            cur_Lone_norm = np.linalg.norm(cur_state_dist - self.state_probs, ord=1)
-            upper_bounds.append(self.act_frac + beta * cur_Lone_norm)
-            lower_bounds.append(self.act_frac - beta * cur_Lone_norm)
-            cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
-        return upper_bounds, lower_bounds
-
-    def get_future_budget_req_bounds_Wnorm(self, state_dist, T_ahead):
-        beta = min(self.act_frac, 1-self.act_frac)
-        W = self.compute_W(abstol=1e-10)[0]
-        cpibs = self.policy[:,1]
-        ratiocw = np.sqrt(np.matmul(cpibs.T, np.linalg.solve(W, cpibs)))
-        cur_state_dist = state_dist
-        upper_bounds = []
-        lower_bounds = []
-        for t in range(T_ahead):
-            x_minus_mu = cur_state_dist - self.state_probs
-            cur_W_norm = np.sqrt(np.matmul(np.matmul(x_minus_mu.T, W), x_minus_mu))
-            upper_bounds.append(self.act_frac + beta / ratiocw * cur_W_norm)
-            lower_bounds.append(self.act_frac - beta / ratiocw * cur_W_norm)
-            cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
-        return upper_bounds, lower_bounds
-
 
     def solve_LP_Priority(self, fixed_dual=None):
         if fixed_dual is None:
@@ -363,6 +292,141 @@ class SingleArmAnalyzer(object):
         for approx_wi in wi2state_sorted:
             priority_list += wi2state_sorted[approx_wi]
         return priority_list, indexable
+
+    def compute_W(self, abstol):
+        Ppibs_centered = self.Ppibs - np.outer(np.ones((self.sspa_size,)), self.state_probs)
+        W = np.zeros((self.sspa_size, self.sspa_size))
+        P_power = np.eye(self.sspa_size)
+        # calculate W, test tolerance level
+        iters = 0
+        while True:
+            W += np.matmul(P_power, P_power.T)
+            P_power = np.matmul(Ppibs_centered, P_power)
+            P_power_norm = np.linalg.norm(P_power)
+            W_norm = np.linalg.norm(W, ord=2)
+            # print("P_power_norm=", P_power_norm, "W_norm=", W_norm)
+            spn_error = W_norm * P_power_norm**2 / (1-P_power_norm**2)
+            iters += 1
+            if (P_power_norm < 1) and (spn_error < abstol):
+                break
+        print("W computed after expanding {} terms".format(iters))
+        return W, spn_error
+
+    def get_future_expected_budget_requirements(self, state_dist, T_ahead):
+        cur_state_dist = state_dist
+        budget_reqs = []
+        for t in range(T_ahead):
+            budget_reqs.append(np.matmul(self.policy[:,1].T, cur_state_dist))
+            cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
+        return budget_reqs
+
+    def get_future_budget_req_bounds_Lone(self, state_dist, T_ahead):
+        beta = min(self.act_frac, 1-self.act_frac)
+        cur_state_dist = state_dist
+        upper_bounds = []
+        lower_bounds = []
+        for t in range(T_ahead):
+            cur_Lone_norm = np.linalg.norm(cur_state_dist - self.state_probs, ord=1)
+            upper_bounds.append(self.act_frac + beta * cur_Lone_norm)
+            lower_bounds.append(self.act_frac - beta * cur_Lone_norm)
+            cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
+        return upper_bounds, lower_bounds
+
+    def get_future_budget_req_bounds_Wnorm(self, state_dist, T_ahead):
+        beta = min(self.act_frac, 1-self.act_frac)
+        W = self.compute_W(abstol=1e-10)[0]
+        cpibs = self.policy[:,1]
+        ratiocw = np.sqrt(np.matmul(cpibs.T, np.linalg.solve(W, cpibs)))
+        cur_state_dist = state_dist
+        upper_bounds = []
+        lower_bounds = []
+        for t in range(T_ahead):
+            x_minus_mu = cur_state_dist - self.state_probs
+            cur_W_norm = np.sqrt(np.matmul(np.matmul(x_minus_mu.T, W), x_minus_mu))
+            upper_bounds.append(self.act_frac + beta / ratiocw * cur_W_norm)
+            lower_bounds.append(self.act_frac - beta / ratiocw * cur_W_norm)
+            cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
+        return upper_bounds, lower_bounds
+
+    def compute_Phi(self):
+        y = self.y.value
+        ind_neu = np.where(np.all([y[:,0] > self.EPS, y[:,1] > self.EPS],axis=0))[0]
+        print("ind_neu=", ind_neu)
+        Phi = self.Ppibs -  np.outer(np.ones((self.sspa_size,)), self.state_probs) \
+                - np.outer(self.policy[:,1] - self.act_frac * np.ones((self.sspa_size,)), self.trans_tensor[ind_neu,1,:] - self.trans_tensor[ind_neu,0,:])
+        moduli = [np.absolute(lam) for lam in np.linalg.eigvals(Phi)]
+        spec_rad = max(moduli)
+        # print the result
+        print(self.policy[:,1] - self.act_frac * np.ones((self.sspa_size,)))
+        print("P1=", self.trans_tensor[:,1,:])
+        print("P0=", self.trans_tensor[:,0,:])
+        print("Ppibs=", self.Ppibs)
+        print("Phi=", Phi)
+        print("moduli of Phi's eigenvalues=", moduli)
+        return Phi
+
+    def compute_U(self, abstol):
+        Phi = self.compute_Phi()
+        if np.max(np.linalg.eigvals(Phi)) >= 1:
+            return np.infty, np.infty
+
+        Phi_power = np.eye(self.sspa_size)
+        U = np.zeros((self.sspa_size, self.sspa_size))
+        # start calculating
+        iters = 0
+        while True:
+            U += np.matmul(Phi_power, Phi_power.T)
+            Phi_power = np.matmul(Phi, Phi_power)
+            Phi_power_norm = np.linalg.norm(Phi_power)
+            U_norm = np.linalg.norm(U, ord=2)
+            # print("U norm = {}, Phi_power_norm = {}".format(U_norm, Phi_power_norm))
+            spn_error = U_norm * Phi_power_norm**2 / (1-Phi_power_norm**2)
+            iters += 1
+            if (Phi_power_norm < 1) and (spn_error < abstol):
+                break
+        print("U computed after expanding {} terms, error={}".format(iters, spn_error))
+        return U, spn_error
+
+    def compute_pre_eta(self, U):
+        y = self.y.value
+        self.Sempty = np.where(self.state_probs <= self.EPS)[0]
+        self.Sneu = np.where(np.all(y >= self.EPS, axis=1))[0]
+        # todo: handle the case when y corresponds to more than one neutral state
+        assert len(self.Sneu) == 1
+        if U is np.infty:
+            return 0
+        U_sqrt = scipy.linalg.sqrtm(U)
+
+        c_act_no_neu = self.policy[:,1]
+        c_act_no_neu[self.Sneu[0]] = 0
+        c_pass_no_neu = self.policy[:,0]
+        c_pass_no_neu[self.Sneu[0]] = 0
+
+        x = cp.Variable(self.sspa_size)
+        f = cp.Variable()
+        constrs = []
+        constrs.append(cp.sum(x) == 1)
+        constrs.append(x >= 0)
+        constrs.append(cp.SOC(f, U_sqrt @ (x-self.state_probs)))
+        constrs.append(cp.matmul(c_act_no_neu.T, x) >= self.act_frac)
+        objective = cp.Minimize(f)
+        problem = cp.Problem(objective, constrs)
+        problem.solve()
+        if f.value is not None:
+            f_1 = f.value.copy()
+        else:
+            f_1 = np.infty
+        # solve the second problem
+        constrs[-1] = cp.matmul(c_pass_no_neu.T, x) >= 1 - self.act_frac
+        problem = cp.Problem(objective, constrs)
+        problem.solve()
+        if f.value is not None:
+            f_2 = f.value.copy()
+        else:
+            f_2 = np.infty
+
+        return min(f_1, f_2)
+
 
 
 class PriorityPolicy(object):
@@ -750,7 +814,6 @@ class SetExpansionPolicy(object):
         self.s_count_scaled_fs = cp.Parameter(self.sspa_size)
         self.beta = cp.Parameter()
         self.beta = min(act_frac, 1-act_frac) #######
-        self.state_probs = cp.Parameter(self.sspa_size)
 
         # get the randomized policy from the solution y
         self.state_probs = np.sum(self.y, axis=1)
@@ -1000,7 +1063,6 @@ class SetOptPolicy(object):
         self.s_count_scaled = cp.Parameter(self.sspa_size)
         self.beta = cp.Parameter()
         self.beta = min(act_frac, 1-act_frac)
-        self.state_probs = cp.Parameter(self.sspa_size)
 
         # get the randomized policy from the solution y
         self.state_probs = np.sum(self.y, axis=1)
@@ -1323,8 +1385,11 @@ class SetOptPolicy(object):
         return actions, conformity_flag
 
 
-def TwoSetPolicy(object):
-    def __init__(self, sspa_size, y, N, act_frac, U, eta):
+class TwoSetPolicy(object):
+    def __init__(self, sspa_size, y, N, act_frac, U, pre_eta):
+        """
+        eta = pre_eta - (|Sempty|+1)/N
+        """
         self.sspa_size = sspa_size
         self.sspa = np.array(list(range(self.sspa_size)))
         self.aspa = np.array([0, 1])
@@ -1341,20 +1406,8 @@ def TwoSetPolicy(object):
         self.U_sqrt = scipy.linalg.sqrtm(U)
         # self.Lw = 2 * np.linalg.norm(W, ord=2)
         # self.Lu = 2 * np.linalg.norm(U, ord=2)
-        self.eta = eta
 
         self.EPS = 1e-7
-        # # the focus set, represented as an array of IDs of the arms
-        # self.focus_set = np.array([])
-
-        # variables and parameters
-        self.z = cp.Variable(self.sspa_size)
-        self.m = cp.Variable()
-        self.f = cp.Variable()
-        self.s_count_scaled = cp.Parameter(self.sspa_size)
-        self.beta = cp.Parameter()
-        self.beta = min(act_frac, 1-act_frac)
-        self.state_probs = cp.Parameter(self.sspa_size)
 
         # get the randomized policy from the solution y
         self.state_probs = np.sum(self.y, axis=1)
@@ -1368,13 +1421,24 @@ def TwoSetPolicy(object):
         assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
-        # self.cpibs = self.policy[:,1]
-        # self.ratiocw = np.sqrt(np.matmul(self.cpibs.T, np.linalg.solve(self.W, self.cpibs)))
-        # print("W=", self.W)
-        # print("cpibs=", self.cpibs)
-        # print("ratiocw=", self.ratiocw)
+        self.Sempty = np.where(self.state_probs <= self.EPS)[0]
+        self.Sneu = np.where(np.all(self.y > self.EPS, axis=1))[0]
+        # todo: check if minus 2*(len(self.Sempty)+1)/self.N is enough, with pre_eta computed from the SOCP.
+        self.eta = pre_eta - 2*(len(self.Sempty)+1)/self.N
+        assert len(self.Sneu) == 1
+
+        # variables and parameters
+        self.z = cp.Variable(self.sspa_size)
+        self.m = cp.Variable()
+        self.f = cp.Variable()
+        self.s_count_scaled = cp.Parameter(self.sspa_size)
+        self.beta = cp.Parameter()
+        self.beta = min(act_frac, 1-act_frac)
 
     def get_new_focus_set(self, cur_states, last_OL_set):
+        if (self.U is np.infty) or self.eta <= 0:
+            return np.array([])
+
         states_fs = cur_states[last_OL_set]
         s2indices = {s: None for s in self.sspa}
         s2indices_fs = {s: None for s in self.sspa} # state to indices map in the focus set
@@ -1391,7 +1455,6 @@ def TwoSetPolicy(object):
 
         cur_m = len(last_OL_set)/self.N
         # first solve for the D^{OL}_temp
-        # todo: multiply by 0.5?
         x_minus_mmu = s_count_scaled_fs - cur_m * self.state_probs
         cur_delta = self.eta*cur_m - np.sqrt(np.matmul(np.matmul(x_minus_mmu.T, self.U), x_minus_mmu))
         if cur_delta >= 0:
@@ -1420,6 +1483,7 @@ def TwoSetPolicy(object):
 
         next_OL_set = []
         for s in self.sspa:
+            # todo: roudning to integer might cause the resulting set to not satisfying the condition
             next_s_count_fs = int(self.N * z_OL[s])
             next_OL_set.extend(s2indices[s][0:next_s_count_fs])
         next_OL_set = np.array(next_OL_set, dtype=int)
@@ -1427,9 +1491,69 @@ def TwoSetPolicy(object):
         return next_OL_set
 
     def get_actions(self, cur_states, cur_OL_set):
-        pass
+        exp_budget = self.N * self.act_frac
+        random_bit = np.random.binomial(1, exp_budget - int(exp_budget))
+        budget = int(exp_budget) + random_bit
 
+        local_exp_budget = len(cur_OL_set) * self.act_frac
+        # todo: different from the paper, here we allow non-integer alpha N;
+        #  and we share the random bit between budget and local budget so that action recfitication always work.
+        #  Check if the proof still goes through in this setting, or just avoid non-integer alpha N.
+        local_budget = int(local_exp_budget) + random_bit
 
+        actions = np.zeros((self.N,), dtype=np.int64)
+        s2indices = {state:None for state in self.sspa}
+        s2indices_fs = {state:None for state in self.sspa}
+        cur_OL_set_mask = np.zeros((self.N,))
+        cur_OL_set_mask[cur_OL_set] = 1
+        # count the indices of arms in each state
+        for state in self.sspa:
+            s2indices[state] = np.where(cur_states == state)[0]
+            s2indices_fs[state] =  np.where(np.all([cur_states == state, cur_OL_set_mask], axis=0))[0]
+            expected_act_count = self.policy[state, 1] * len(s2indices_fs[state])
+            # choose actions by randomized rounding
+            if state in self.Sempty:
+                p_round = expected_act_count - int(expected_act_count)
+                act_count = int(expected_act_count) + np.random.binomial(1, p_round)
+            elif state in self.Sneu:
+                continue
+            else:
+                act_count = int(expected_act_count)
+            actions[s2indices_fs[state][0:act_count]] = 1
+        ## for this version of implementation, assume 0 <= neutral_act_count <= len(s2indices[self.Sneu[0]])
+        neutral_act_count = local_budget - np.sum(actions)
+        assert neutral_act_count >= 0
+        assert neutral_act_count <= len(s2indices_fs[self.Sneu[0]]), "{}>{}".format(neutral_act_count, len(s2indices_fs[self.Sneu[0]]))
+        actions[s2indices_fs[self.Sneu[0]][0:neutral_act_count]] = 1
+        assert np.sum(actions[cur_OL_set]) == local_budget, "Error: {}!={}".format(np.sum(actions[cur_OL_set]), local_budget)
+
+        # for this version, just use ID policy for the actions outside the OL set
+        non_OL_set_mask = np.ones((self.N,))
+        non_OL_set_mask[cur_OL_set] = 0
+        non_OL_set = np.where(non_OL_set_mask)[0]
+        ideal_actions = np.zeros((self.N,))
+        for state in self.sspa:
+            ideal_actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
+        actions[non_OL_set] = ideal_actions[non_OL_set]
+        # rectification
+        num_requests = np.sum(actions)
+        if num_requests > budget:
+            indices_request = np.where(actions*non_OL_set_mask)[0]
+            # sort by ID
+            indices_request = np.sort(indices_request)
+            request_ignored = indices_request[(-int(num_requests - budget)):]
+            actions[request_ignored] = 0
+        elif num_requests < budget:
+            indices_no_request = np.where((1-actions)*non_OL_set_mask)[0]
+            # sort by ID
+            indices_no_request = np.sort(indices_no_request)
+            no_request_pulled = indices_no_request[(-int(budget - num_requests)):]
+            actions[no_request_pulled] = 1
+        else:
+            pass
+        assert np.sum(actions) == budget, "{}!={}, {}, {}, {}, {}".format(
+            np.sum(actions), budget, len(cur_OL_set), np.sum(actions[cur_OL_set]),self.N-exp_budget, len(cur_OL_set)-local_exp_budget)
+        return actions
 
 # def states_to_scaled_state_counts(sspa_size, N, states):
 #     scaled_state_counts = np.zeros((sspa_size,)) # 2 is the action space size

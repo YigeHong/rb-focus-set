@@ -129,6 +129,28 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+            elif policy_name == "setexp-priority":
+                policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
+                for t in range(T):
+                    cur_states = rb.get_states()
+                    focus_set, non_shrink_flag = policy.get_new_focus_set(cur_states=cur_states,
+                                                                          last_focus_set=focus_set)
+                    actions, conformity_flag = policy.get_actions(cur_states, focus_set, tb_rule="priority",
+                                                                  tb_priority=priority_list)
+                    conformity_count += conformity_flag
+                    non_shrink_count += non_shrink_flag
+                    instant_reward = rb.step(actions)
+                    total_reward += instant_reward
+            elif policy_name == "setopt-priority":
+                policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
+                for t in range(T):
+                    cur_states = rb.get_states()
+                    focus_set = policy.get_new_focus_set(cur_states=cur_states)
+                    actions, conformity_flag = policy.get_actions(cur_states, focus_set, tb_rule="priority",
+                                                                  tb_priority=priority_list)
+                    conformity_count += conformity_flag
+                    instant_reward = rb.step(actions)
+                    total_reward += instant_reward
             elif policy_name == "ftva":
                 policy = FTVAPolicy(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, y=y, N=N,
                                     act_frac=act_frac, init_virtual=None)
@@ -174,8 +196,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
 
 
 def figure_from_multiple_files():
-    settings = ["eight-states", "three-states", "non-sa"] #+ ["random-size-3-uniform-({})".format(i) for i in range(5)]  # ["eight-states", "three-states", "non-sa"]
-    policies = ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setopt-tight"]  # ["id", "setexp", "setopt", "ftva", "lppriority"]
+    settings = ["random-size-3-uniform-({})".format(i) for i in range(5)]  # ["eight-states", "three-states", "non-sa"]
+    policies = ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-priority", "setopt-priority"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
     reward_array_dict = {}
     Ns = np.array(list(range(100, 1100, 100)))
     init_method = "random"
@@ -241,14 +263,14 @@ if __name__ == "__main__":
     # time_per_point = (toc - tic) / 66
     # print("when T=10000, time per data point for setopt-id / setexp-id =", time_per_point)
     #
-    # # ## random examples
+    # # # ## random examples
     # for i in range(5):
     #     setting_path = "setting_data/random-size-3-uniform-({})".format(i)
     #     setting = rb_settings.ExampleFromFile(setting_path)
     #     rb_settings.print_bandit(setting)
     #     setting_name = "random-size-3-uniform-({})".format(i)
-    #     for policy_name in ["setexp", "setopt"]:
+    #     for policy_name in ["setexp-priority", "setopt-priority"]:
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
-    figure_from_multiple_files()
-
+    # figure_from_multiple_files()
+    pass

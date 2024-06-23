@@ -352,7 +352,10 @@ class SingleArmAnalyzer(object):
         y = self.y.value
         ind_neu = np.where(np.all([y[:,0] > self.EPS, y[:,1] > self.EPS],axis=0))[0]
         print("ind_neu=", ind_neu)
-        Phi = self.Ppibs -  np.outer(np.ones((self.sspa_size,)), self.state_probs) \
+        if len(ind_neu) == 0:
+            Phi = self.Ppibs -  np.outer(np.ones((self.sspa_size,)), self.state_probs)
+        else:
+            Phi = self.Ppibs -  np.outer(np.ones((self.sspa_size,)), self.state_probs) \
                 - np.outer(self.policy[:,1] - self.act_frac * np.ones((self.sspa_size,)), self.trans_tensor[ind_neu,1,:] - self.trans_tensor[ind_neu,0,:])
         moduli = [np.absolute(lam) for lam in np.linalg.eigvals(Phi)]
         spec_rad = max(moduli)
@@ -387,45 +390,6 @@ class SingleArmAnalyzer(object):
         print("U computed after expanding {} terms, error={}".format(iters, spn_error))
         return U, spn_error
 
-    def compute_pre_eta(self, U):
-        y = self.y.value
-        self.Sempty = np.where(self.state_probs <= self.EPS)[0]
-        self.Sneu = np.where(np.all(y >= self.EPS, axis=1))[0]
-        # todo: handle the case when y corresponds to more than one neutral state
-        assert len(self.Sneu) == 1
-        if U is np.infty:
-            return 0
-        U_sqrt = scipy.linalg.sqrtm(U)
-
-        c_act_no_neu = self.policy[:,1]
-        c_act_no_neu[self.Sneu[0]] = 0
-        c_pass_no_neu = self.policy[:,0]
-        c_pass_no_neu[self.Sneu[0]] = 0
-
-        x = cp.Variable(self.sspa_size)
-        f = cp.Variable()
-        constrs = []
-        constrs.append(cp.sum(x) == 1)
-        constrs.append(x >= 0)
-        constrs.append(cp.SOC(f, U_sqrt @ (x-self.state_probs)))
-        constrs.append(cp.matmul(c_act_no_neu.T, x) >= self.act_frac)
-        objective = cp.Minimize(f)
-        problem = cp.Problem(objective, constrs)
-        problem.solve()
-        if f.value is not None:
-            f_1 = f.value.copy()
-        else:
-            f_1 = np.infty
-        # solve the second problem
-        constrs[-1] = cp.matmul(c_pass_no_neu.T, x) >= 1 - self.act_frac
-        problem = cp.Problem(objective, constrs)
-        problem.solve()
-        if f.value is not None:
-            f_2 = f.value.copy()
-        else:
-            f_2 = np.infty
-
-        return min(f_1, f_2)
 
 
 
@@ -1386,7 +1350,7 @@ class SetOptPolicy(object):
 
 
 class TwoSetPolicy(object):
-    def __init__(self, sspa_size, y, N, act_frac, U, pre_eta):
+    def __init__(self, sspa_size, y, N, act_frac, U):
         """
         eta = pre_eta - (|Sempty|+1)/N
         """
@@ -1400,13 +1364,8 @@ class TwoSetPolicy(object):
         self.N = N
         self.act_frac = act_frac
         self.y = y
-        # self.W = W
-        # self.W_sqrt = scipy.linalg.sqrtm(W)
         self.U = U
         self.U_sqrt = scipy.linalg.sqrtm(U)
-        # self.Lw = 2 * np.linalg.norm(W, ord=2)
-        # self.Lu = 2 * np.linalg.norm(U, ord=2)
-
         self.EPS = 1e-7
 
         # get the randomized policy from the solution y
@@ -1423,9 +1382,9 @@ class TwoSetPolicy(object):
 
         self.Sempty = np.where(self.state_probs <= self.EPS)[0]
         self.Sneu = np.where(np.all(self.y > self.EPS, axis=1))[0]
-        # todo: check if minus 2*(len(self.Sempty)+1)/self.N is enough, with pre_eta computed from the SOCP.
-        self.eta = pre_eta - 2*(len(self.Sempty)+1)/self.N
-        assert len(self.Sneu) == 1
+        self.eta = self.compute_eta()
+        # todo: handle the case when y corresponds to more than one neutral state
+        assert len(self.Sneu) <= 1
 
         # variables and parameters
         self.z = cp.Variable(self.sspa_size)
@@ -1434,6 +1393,40 @@ class TwoSetPolicy(object):
         self.s_count_scaled = cp.Parameter(self.sspa_size)
         self.beta = cp.Parameter()
         self.beta = min(act_frac, 1-act_frac)
+
+    def compute_eta(self):
+        if (self.U is np.infty) or len(self.Sneu) == 0:
+            return 0
+
+        c_act_no_neu = self.policy[:,1].copy()
+        c_act_no_neu[self.Sneu[0]] = 0
+        c_pass_no_neu = self.policy[:,0].copy()
+        c_pass_no_neu[self.Sneu[0]] = 0
+
+        x = cp.Variable(self.sspa_size)
+        f_local = cp.Variable()
+        constrs = []
+        constrs.append(cp.sum(x) == 1)
+        constrs.append(x >= 0)
+        constrs.append(cp.SOC(f_local, self.U_sqrt @ (x-self.state_probs)))
+        constrs.append(cp.matmul(c_act_no_neu.T, x) >= self.act_frac)
+        objective = cp.Minimize(f_local)
+        problem = cp.Problem(objective, constrs)
+        problem.solve()
+        if f_local.value is not None:
+            f_1 = f_local.value.copy()
+        else:
+            f_1 = np.infty
+        # solve the second problem
+        constrs[-1] = cp.matmul(c_pass_no_neu.T, x) >= 1 - self.act_frac
+        problem = cp.Problem(objective, constrs)
+        problem.solve()
+        if f_local.value is not None:
+            f_2 = f_local.value.copy()
+        else:
+            f_2 = np.infty
+        # todo: check if minus 2*(len(self.Sempty)+1)/self.N is enough, with pre_eta computed from the SOCP.
+        return min(f_1, f_2) - 2*(len(self.Sempty)+1)/self.N
 
     def get_new_focus_set(self, cur_states, last_OL_set):
         if (self.U is np.infty) or self.eta <= 0:
@@ -1495,41 +1488,45 @@ class TwoSetPolicy(object):
         random_bit = np.random.binomial(1, exp_budget - int(exp_budget))
         budget = int(exp_budget) + random_bit
 
-        local_exp_budget = len(cur_OL_set) * self.act_frac
-        # todo: different from the paper, here we allow non-integer alpha N;
-        #  and we share the random bit between budget and local budget so that action recfitication always work.
-        #  Check if the proof still goes through in this setting, or just avoid non-integer alpha N.
-        local_budget = int(local_exp_budget) + random_bit
-
-        actions = np.zeros((self.N,), dtype=np.int64)
         s2indices = {state:None for state in self.sspa}
-        s2indices_fs = {state:None for state in self.sspa}
-        cur_OL_set_mask = np.zeros((self.N,))
-        cur_OL_set_mask[cur_OL_set] = 1
-        # count the indices of arms in each state
         for state in self.sspa:
             s2indices[state] = np.where(cur_states == state)[0]
-            s2indices_fs[state] =  np.where(np.all([cur_states == state, cur_OL_set_mask], axis=0))[0]
-            expected_act_count = self.policy[state, 1] * len(s2indices_fs[state])
-            # choose actions by randomized rounding
-            if state in self.Sempty:
-                p_round = expected_act_count - int(expected_act_count)
-                act_count = int(expected_act_count) + np.random.binomial(1, p_round)
-            elif state in self.Sneu:
-                continue
-            else:
-                act_count = int(expected_act_count)
-            actions[s2indices_fs[state][0:act_count]] = 1
-        ## for this version of implementation, assume 0 <= neutral_act_count <= len(s2indices[self.Sneu[0]])
-        neutral_act_count = local_budget - np.sum(actions)
-        assert neutral_act_count >= 0
-        assert neutral_act_count <= len(s2indices_fs[self.Sneu[0]]), "{}>{}".format(neutral_act_count, len(s2indices_fs[self.Sneu[0]]))
-        actions[s2indices_fs[self.Sneu[0]][0:neutral_act_count]] = 1
-        assert np.sum(actions[cur_OL_set]) == local_budget, "Error: {}!={}".format(np.sum(actions[cur_OL_set]), local_budget)
+
+        actions = np.zeros((self.N,), dtype=np.int64)
+        if len(cur_OL_set) > 0:
+            local_exp_budget = len(cur_OL_set) * self.act_frac
+            # todo: different from the paper, here we allow non-integer alpha N;
+            #  and we share the random bit between budget and local budget so that action recfitication always work.
+            #  Check if the proof still goes through in this setting, or just avoid non-integer alpha N.
+            local_budget = int(local_exp_budget) + random_bit
+
+            s2indices_fs = {state:None for state in self.sspa}
+            cur_OL_set_mask = np.zeros((self.N,))
+            cur_OL_set_mask[cur_OL_set] = 1
+            # count the indices of arms in each state
+            for state in self.sspa:
+                s2indices_fs[state] =  np.where(np.all([cur_states == state, cur_OL_set_mask], axis=0))[0]
+                expected_act_count = self.policy[state, 1] * len(s2indices_fs[state])
+                # choose actions by randomized rounding
+                if state in self.Sempty:
+                    p_round = expected_act_count - int(expected_act_count)
+                    act_count = int(expected_act_count) + np.random.binomial(1, p_round)
+                elif state in self.Sneu:
+                    continue
+                else:
+                    act_count = int(expected_act_count)
+                actions[s2indices_fs[state][0:act_count]] = 1
+            ## for this version of implementation, assume 0 <= neutral_act_count <= len(s2indices[self.Sneu[0]])
+            neutral_act_count = local_budget - np.sum(actions)
+            assert neutral_act_count >= 0
+            assert neutral_act_count <= len(s2indices_fs[self.Sneu[0]]), "{}>{}".format(neutral_act_count, len(s2indices_fs[self.Sneu[0]]))
+            actions[s2indices_fs[self.Sneu[0]][0:neutral_act_count]] = 1
+            assert np.sum(actions[cur_OL_set]) == local_budget, "Error: {}!={}".format(np.sum(actions[cur_OL_set]), local_budget)
 
         # for this version, just use ID policy for the actions outside the OL set
         non_OL_set_mask = np.ones((self.N,))
-        non_OL_set_mask[cur_OL_set] = 0
+        if len(cur_OL_set) > 0:
+            non_OL_set_mask[cur_OL_set] = 0
         non_OL_set = np.where(non_OL_set_mask)[0]
         ideal_actions = np.zeros((self.N,))
         for state in self.sspa:
@@ -1551,8 +1548,7 @@ class TwoSetPolicy(object):
             actions[no_request_pulled] = 1
         else:
             pass
-        assert np.sum(actions) == budget, "{}!={}, {}, {}, {}, {}".format(
-            np.sum(actions), budget, len(cur_OL_set), np.sum(actions[cur_OL_set]),self.N-exp_budget, len(cur_OL_set)-local_exp_budget)
+        assert np.sum(actions) == budget, "{}!={}".format(np.sum(actions), budget)
         return actions
 
 # def states_to_scaled_state_counts(sspa_size, N, states):

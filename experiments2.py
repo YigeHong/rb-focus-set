@@ -18,6 +18,11 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
         setting = rb_settings.Gast20Example2()
     elif setting_name == "non-sa":
         setting = rb_settings.NonSAExample()
+    elif setting_name == "eight-states-055":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.suggest_act_frac = 0.55
     elif setting_path is not None:
         setting = rb_settings.ExampleFromFile(setting_path)
     else:
@@ -33,14 +38,11 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
         priority_list = analyzer.solve_LP_Priority(fixed_dual=0)
     else:
         priority_list = analyzer.solve_LP_Priority()
-    # print(W)
-    # eigs = np.linalg.eigh(W)
-    # for eig in eigs:
-    #     print(np.sort(np.abs(eig)))
-    # cpi = np.array([1,1,1,1,0,0,0,0])
-    # print(np.linalg.inv(W))
-    # print(np.sqrt(np.matmul(np.matmul(cpi.T, np.linalg.inv(W)), cpi)))
-    # exit()
+    print("priority list =", priority_list)
+    Phi = analyzer.compute_Phi()
+    U = analyzer.compute_U(abstol=1e-10)[0]
+    print("U=\n", U)
+    print("spectral norm of Phi=", np.max(np.abs(np.linalg.eigvals(Phi))))
 
     reward_array = np.nan * np.empty((num_reps, len(Ns)))
     for i, N in enumerate(Ns):
@@ -49,6 +51,9 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                 init_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
             elif init_method == "same":
                 init_states = np.zeros((N,))
+            elif init_method == "bad":
+                init_states = 4*np.ones((N,))
+                init_states[0:int(N/3)] = 5
             else:
                 raise NotImplementedError
             rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
@@ -56,6 +61,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
             conformity_count = 0
             non_shrink_count = 0
             focus_set = np.array([], dtype=int)
+            OL_set = np.array([], dtype=int)
 
             if policy_name == "id":
                 policy = IDPolicy(setting.sspa_size, y, N, act_frac)
@@ -168,6 +174,14 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     actions = policy.get_actions(cur_states)
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+            elif policy_name == "twoset-v1":
+                policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U)
+                for t in range(T):
+                    cur_states = rb.get_states()
+                    OL_set = policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set) ###
+                    actions = policy.get_actions(cur_states, OL_set)
+                    instant_reward = rb.step(actions)
+                    total_reward += instant_reward
             else:
                 raise NotImplementedError
             avg_reward = total_reward / T
@@ -196,8 +210,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
 
 
 def figure_from_multiple_files():
-    settings = ["random-size-3-uniform-({})".format(i) for i in range(5)]  # ["eight-states", "three-states", "non-sa"]
-    policies = ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-priority", "setopt-priority"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
+    settings = ["random-size-3-uniform-({})".format(i) for i in range(5)] + ["eight-states", "three-states", "non-sa"]
+    policies = ["id", "ftva", "lppriority", "setexp", "setopt"]# , "setexp-priority", "setopt-priority", "twoset-v1"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
     reward_array_dict = {}
     Ns = np.array(list(range(100, 1100, 100)))
     init_method = "random"
@@ -255,22 +269,21 @@ def figure_from_multiple_files():
 
 
 if __name__ == "__main__":
-    # tic = time.time()
-    # for setting_name in ["eight-states", "three-states", "non-sa"]:   #["eight-states", "three-states", "non-sa"]:
-    #     for policy_name in ["setexp-id", "setopt-id"]:
-    #         run_policies(setting_name, policy_name, "random", 10000)
-    # toc = time.time()
-    # time_per_point = (toc - tic) / 66
-    # print("when T=10000, time per data point for setopt-id / setexp-id =", time_per_point)
+    for setting_name in ["eight-states-055"]:   #["eight-states", "three-states", "non-sa"]:
+        for policy_name in ["lppriority"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+            tic = time.time()
+            run_policies(setting_name, policy_name, "bad", 10000)
+            toc = time.time()
+            time_per_point = (toc - tic) / 10
+            print("when T=10000, time per data point =", time_per_point)
     #
-    # # # ## random examples
-    # for i in range(5):
+    ## random examples
+    # for i in range(1,2):
     #     setting_path = "setting_data/random-size-3-uniform-({})".format(i)
     #     setting = rb_settings.ExampleFromFile(setting_path)
     #     rb_settings.print_bandit(setting)
     #     setting_name = "random-size-3-uniform-({})".format(i)
-    #     for policy_name in ["setexp-priority", "setopt-priority"]:
+    #     for policy_name in ["twoset-v1"]:
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
     # figure_from_multiple_files()
-    pass

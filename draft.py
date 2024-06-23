@@ -1,6 +1,7 @@
 import numpy as np
 import cvxpy as cp
 import scipy
+import pickle
 import time
 from matplotlib import pyplot as plt
 from discrete_RB import *
@@ -58,13 +59,94 @@ def test_W_solver():
     print(np.sort(np.linalg.eigvals(W_sqrt)))
 
 
+def test_compute_future_max_req():
+    probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
+    setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    # setting = rb_settings.Gast20Example2()
+    N = 100
+    act_frac = setting.suggest_act_frac
+    T_ahead = 100
+    num_points_show = 1
+    initialization = "transient" # or "transient" or "steady-state"
+
+    analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
+    analyzer.solve_lp()
+
+    Ts = np.arange(0, T_ahead)
+    budget_line = np.array([act_frac] * T_ahead)
+    plt.plot(Ts, budget_line, linestyle="--", label="budget")
+
+    for i in range(num_points_show):
+        if initialization == "transient":
+            init_state_fracs = np.random.uniform(0, 1, size=(setting.sspa_size,))
+            init_state_fracs = init_state_fracs / np.sum(init_state_fracs)
+        elif initialization == "steady-state":
+            init_state_fracs = np.random.multinomial(N, analyzer.state_probs) / N
+        else:
+            raise NotImplementedError
+        future_reqs =  analyzer.get_future_expected_budget_requirements(init_state_fracs, T_ahead)
+        print("initial_frequenty=", init_state_fracs)
+        plt.plot(Ts, future_reqs, label="requirement")
+
+        Lone_upper, Lone_lower = analyzer.get_future_budget_req_bounds_Lone(init_state_fracs, T_ahead)
+        plt.plot(Ts, Lone_upper, linestyle=":", label="Lone upper")
+        plt.plot(Ts, Lone_lower, linestyle=":", label="Lone lower")
+
+        Wnorm_upper, Wnorm_lower = analyzer.get_future_budget_req_bounds_Wnorm(init_state_fracs, T_ahead)
+        plt.plot(Ts, Wnorm_upper, linestyle="-.", label="W norm upper")
+        plt.plot(Ts, Wnorm_lower, linestyle="-.", label="W norm lower")
+
+    plt.legend()
+    plt.show()
+
+
+# def test_UGAP():
+#     # probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
+#     # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+#     # setting = rb_settings.Gast20Example2()
+#     setting = rb_settings.NonSAExample()
+#     N = 100
+#     act_frac = setting.suggest_act_frac
+#
+#     # init_states = np.random.choice(sspa, N, replace=True)
+#     # rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states=init_states)
+#
+#     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
+#     y = analyzer.solve_lp()[1]
+#     W = analyzer.compute_W(abstol=1e-10)[0]
+#     print("W=", W)
+#     priority = analyzer.solve_LP_Priority()
+#     print("LP Priority=", priority)
+#
+#     init_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
+#
+#     test_local_stability(setting, priority, act_frac, try_steps=2000, eps=1e-3, )
+
+def edit_data():
+    with open("fig_data/100-300-random-size-3-uniform-(1)-twoset-v1-N100-1000-random", "rb") as f:
+        data_dict_1 = pickle.load(f)
+        print(data_dict_1)
+    with open("fig_data/400-500-random-size-3-uniform-(1)-twoset-v1-N100-1000-random", "rb") as f:
+        data_dict_2 = pickle.load(f)
+    with open("fig_data/600-800-(2000)-random-size-3-uniform-(1)-twoset-v1-N100-1000-random", "rb") as f:
+        data_dict_3 = pickle.load(f)
+    with open("fig_data/900-1000-(2000)-random-size-3-uniform-(1)-twoset-v1-N100-1000-random", "rb") as f:
+        data_dict_4 = pickle.load(f)
+    data_dict = data_dict_4.copy()
+    data_dict["reward_array"][0,0:3] = data_dict_1["reward_array"][0,0:3]
+    data_dict["reward_array"][0,3:5] = data_dict_2["reward_array"][0,3:5]
+    data_dict["reward_array"][0,5:8] = data_dict_3["reward_array"][0,5:8]
+    data_dict["reward_array"][0,8:10] = data_dict_4["reward_array"][0,8:10]
+    with open("fig_data/random-size-3-uniform-(1)-twoset-v1-N100-1000-random", "wb") as f:
+        pickle.dump(data_dict, f)
+
 def test_run_policies():
     # probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
     # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
     # setting = rb_settings.Gast20Example2()
     # setting = rb_settings.NonSAExample()
-    setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(4)")
-    N = 800
+    setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(1)")
+    N = 1000
     act_frac = setting.suggest_act_frac
     rb_settings.print_bandit(setting)
 
@@ -79,18 +161,20 @@ def test_run_policies():
     print("LP Priority=", priority)
     U = analyzer.compute_U(abstol=1e-10)[0]
     print("U=\n", U)
-    pre_eta = analyzer.compute_pre_eta(U)
-    print("pre_eta=", pre_eta)
 
     init_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
+    # init_states = np.random.choice(np.arange(4, setting.sspa_size), N, replace=True)
+    # init_states = 4*np.ones((N,))
+    # init_states[0:int(N/3)] = 5
     rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
 
     id_policy = IDPolicy(setting.sspa_size, y, N, act_frac)
     setexp_policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac, W=W)
     setopt_policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
-    twoset_policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U, pre_eta)
+    twoset_policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U)
+    print("eta=", twoset_policy.eta)
 
-    T = 1000
+    T = 2000
     total_reward = 0
     conformity_count = 0
     non_shrink_count = 0
@@ -98,6 +182,17 @@ def test_run_policies():
     OL_set =np.array([], dtype=int)
     total_focus_set_size = 0
     total_OL_set_size = 0
+    # priority_policy = PriorityPolicy(setting.sspa_size, priority, N=N, act_frac=act_frac)
+    # for t in range(T):
+    #     cur_states = rb.get_states()
+    #     actions = priority_policy.get_actions(cur_states)
+    #     instant_reward = rb.step(actions)
+    #     total_reward += instant_reward
+    #     if t%100 == 0:
+    #         sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
+    #         s_fracs = np.sum(sa_fracs, axis=1)
+    #         print("t={}\ns_fracs={}".format(t, s_fracs))
+    # print("avg reward = {}".format(total_reward / T))
     # for t in range(T):
     #     cur_states = rb.get_states()
     #     actions = id_policy.get_actions(cur_states)
@@ -167,79 +262,17 @@ def test_run_policies():
             sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
             s_fracs = np.sum(sa_fracs, axis=1)
             print("t={}\ns_fracs={}".format(t, s_fracs))
-            print("OL set size before rounding={}, after rounding={}".format(twoset_policy.m.value*N, len(OL_set)))
+            print("OL set size before rounding={}, after rounding={}".format((twoset_policy.m.value or 0)*N, len(OL_set)))
     print("avg reward = {}".format(total_reward / T))
     print("avg OL set size = {}".format(total_OL_set_size / T))
 
 
-def test_compute_future_max_req():
-    probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
-    setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-    # setting = rb_settings.Gast20Example2()
-    N = 100
-    act_frac = setting.suggest_act_frac
-    T_ahead = 100
-    num_points_show = 1
-    initialization = "transient" # or "transient" or "steady-state"
-
-    analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
-    analyzer.solve_lp()
-
-    Ts = np.arange(0, T_ahead)
-    budget_line = np.array([act_frac] * T_ahead)
-    plt.plot(Ts, budget_line, linestyle="--", label="budget")
-
-    for i in range(num_points_show):
-        if initialization == "transient":
-            init_state_fracs = np.random.uniform(0, 1, size=(setting.sspa_size,))
-            init_state_fracs = init_state_fracs / np.sum(init_state_fracs)
-        elif initialization == "steady-state":
-            init_state_fracs = np.random.multinomial(N, analyzer.state_probs) / N
-        else:
-            raise NotImplementedError
-        future_reqs =  analyzer.get_future_expected_budget_requirements(init_state_fracs, T_ahead)
-        print("initial_frequenty=", init_state_fracs)
-        plt.plot(Ts, future_reqs, label="requirement")
-
-        Lone_upper, Lone_lower = analyzer.get_future_budget_req_bounds_Lone(init_state_fracs, T_ahead)
-        plt.plot(Ts, Lone_upper, linestyle=":", label="Lone upper")
-        plt.plot(Ts, Lone_lower, linestyle=":", label="Lone lower")
-
-        Wnorm_upper, Wnorm_lower = analyzer.get_future_budget_req_bounds_Wnorm(init_state_fracs, T_ahead)
-        plt.plot(Ts, Wnorm_upper, linestyle="-.", label="W norm upper")
-        plt.plot(Ts, Wnorm_lower, linestyle="-.", label="W norm lower")
-
-    plt.legend()
-    plt.show()
-
-
-# def test_UGAP():
-#     # probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
-#     # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-#     # setting = rb_settings.Gast20Example2()
-#     setting = rb_settings.NonSAExample()
-#     N = 100
-#     act_frac = setting.suggest_act_frac
-#
-#     # init_states = np.random.choice(sspa, N, replace=True)
-#     # rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states=init_states)
-#
-#     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
-#     y = analyzer.solve_lp()[1]
-#     W = analyzer.compute_W(abstol=1e-10)[0]
-#     print("W=", W)
-#     priority = analyzer.solve_LP_Priority()
-#     print("LP Priority=", priority)
-#
-#     init_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
-#
-#     test_local_stability(setting, priority, act_frac, try_steps=2000, eps=1e-3, )
 
 
 np.random.seed(114514)
 np.set_printoptions(precision=2)
 test_run_policies()
-
+# edit_data()
 
 
 

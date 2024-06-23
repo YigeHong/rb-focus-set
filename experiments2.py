@@ -45,15 +45,16 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
     print("spectral norm of Phi=", np.max(np.abs(np.linalg.eigvals(Phi))))
 
     reward_array = np.nan * np.empty((num_reps, len(Ns)))
+    full_reward_trace = {}
     for i, N in enumerate(Ns):
+        full_reward_trace[i,N] = []
         for rep in range(num_reps):
             if init_method == "random":
                 init_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
             elif init_method == "same":
                 init_states = np.zeros((N,))
             elif init_method == "bad":
-                init_states = 4*np.ones((N,))
-                init_states[0:int(N/3)] = 5
+                init_states = np.random.choice(np.arange(4, 8), N, replace=True)
             else:
                 raise NotImplementedError
             rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
@@ -70,6 +71,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     actions = policy.get_actions(cur_states)
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
                     # if t%100 == 0:
                     #     sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
                     #     s_fracs = np.sum(sa_fracs, axis=1)
@@ -85,6 +87,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     non_shrink_count += non_shrink_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
                     # if t%100 == 0:
                     #     sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
                     #     s_fracs = np.sum(sa_fracs, axis=1)
@@ -100,6 +103,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
                     # if t%100 == 0:
                     #     sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
                     #     s_fracs = np.sum(sa_fracs, axis=1)
@@ -115,6 +119,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
             elif policy_name == "setexp-id":
                 policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
                 for t in range(T):
@@ -126,6 +131,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     non_shrink_count += non_shrink_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
             elif policy_name == "setopt-id":
                 policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
                 for t in range(T):
@@ -135,6 +141,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
             elif policy_name == "setexp-priority":
                 policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
                 for t in range(T):
@@ -147,6 +154,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     non_shrink_count += non_shrink_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
             elif policy_name == "setopt-priority":
                 policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
                 for t in range(T):
@@ -157,6 +165,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
             elif policy_name == "ftva":
                 policy = FTVAPolicy(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, y=y, N=N,
                                     act_frac=act_frac, init_virtual=None)
@@ -167,6 +176,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     total_reward += instant_reward
                     new_state = rb.get_states()
                     policy.virtual_step(prev_state, new_state, actions, virtual_actions)
+                    full_reward_trace[i,N].append(instant_reward)
             elif policy_name == "lppriority":
                 policy = PriorityPolicy(setting.sspa_size, priority_list, N=N, act_frac=act_frac)
                 for t in range(T):
@@ -174,6 +184,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     actions = policy.get_actions(cur_states)
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
             elif policy_name == "twoset-v1":
                 policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U)
                 for t in range(T):
@@ -182,6 +193,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     actions = policy.get_actions(cur_states, OL_set)
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
             else:
                 raise NotImplementedError
             avg_reward = total_reward / T
@@ -202,6 +214,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                 "init_state_fracs": None,
                 "setting": setting,
                 "reward_array": reward_array,
+                "full_reward_trace": full_reward_trace,
                 "y": y,
                 "W": W,
                 "upper bound": analyzer.opt_value
@@ -269,7 +282,7 @@ def figure_from_multiple_files():
 
 
 if __name__ == "__main__":
-    for setting_name in ["eight-states-055"]:   #["eight-states", "three-states", "non-sa"]:
+    for setting_name in ["eight-states-045"]:   #["eight-states", "three-states", "non-sa"]:
         for policy_name in ["lppriority"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
             tic = time.time()
             run_policies(setting_name, policy_name, "bad", 10000)

@@ -145,8 +145,8 @@ def test_run_policies():
     # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
     # setting = rb_settings.Gast20Example2()
     # setting = rb_settings.NonSAExample()
-    setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(1)")
-    N = 1000
+    setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(4)")
+    N = 600
     act_frac = setting.suggest_act_frac
     rb_settings.print_bandit(setting)
 
@@ -182,7 +182,7 @@ def test_run_policies():
     OL_set =np.array([], dtype=int)
     total_focus_set_size = 0
     total_OL_set_size = 0
-    # priority_policy = PriorityPolicy(setting.sspa_size, priority, N=N, act_frac=act_frac)
+    priority_policy = PriorityPolicy(setting.sspa_size, priority, N=N, act_frac=act_frac)
     # for t in range(T):
     #     cur_states = rb.get_states()
     #     actions = priority_policy.get_actions(cur_states)

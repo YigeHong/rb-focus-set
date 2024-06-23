@@ -1350,9 +1350,10 @@ class SetOptPolicy(object):
 
 
 class TwoSetPolicy(object):
-    def __init__(self, sspa_size, y, N, act_frac, U):
+    def __init__(self, sspa_size, y, N, act_frac, U, rounding="direct"):
         """
-        eta = pre_eta - (|Sempty|+1)/N
+        :param rounding: "direct" or "misocp". If "direct", solve for a real-valued z when getting the focus set, and
+         do the lower rounding to get the focus set; if "misocp", solve for a mixed integer qudratic program to get the focus set.
         """
         self.sspa_size = sspa_size
         self.sspa = np.array(list(range(self.sspa_size)))
@@ -1367,6 +1368,7 @@ class TwoSetPolicy(object):
         self.U = U
         self.U_sqrt = scipy.linalg.sqrtm(U)
         self.EPS = 1e-7
+        self.rounding = rounding
 
         # get the randomized policy from the solution y
         self.state_probs = np.sum(self.y, axis=1)
@@ -1387,7 +1389,12 @@ class TwoSetPolicy(object):
         assert len(self.Sneu) <= 1
 
         # variables and parameters
-        self.z = cp.Variable(self.sspa_size)
+        if rounding == "direct":
+            self.z = cp.Variable(self.sspa_size)
+        elif rounding == "misocp":
+            self.z = cp.Variable(self.sspa_size, integer=True)
+        else:
+            raise NotImplementedError
         self.m = cp.Variable()
         self.f = cp.Variable()
         self.s_count_scaled = cp.Parameter(self.sspa_size)
@@ -1425,8 +1432,8 @@ class TwoSetPolicy(object):
             f_2 = f_local.value.copy()
         else:
             f_2 = np.infty
-        # todo: check if minus 2*(len(self.Sempty)+1)/self.N is enough, with pre_eta computed from the SOCP.
-        return min(f_1, f_2) - 2*(len(self.Sempty)+1)/self.N
+        # todo: before running misocp, integrate the minus something back to the optimization problem
+        return min(f_1, f_2) - (len(self.Sempty)+1)/self.N
 
     def get_new_focus_set(self, cur_states, last_OL_set):
         if (self.U is np.infty) or self.eta <= 0:
@@ -1476,7 +1483,6 @@ class TwoSetPolicy(object):
 
         next_OL_set = []
         for s in self.sspa:
-            # todo: roudning to integer might cause the resulting set to not satisfying the condition
             next_s_count_fs = int(self.N * z_OL[s])
             next_OL_set.extend(s2indices[s][0:next_s_count_fs])
         next_OL_set = np.array(next_OL_set, dtype=int)
@@ -1516,11 +1522,29 @@ class TwoSetPolicy(object):
                 else:
                     act_count = int(expected_act_count)
                 actions[s2indices_fs[state][0:act_count]] = 1
-            ## for this version of implementation, assume 0 <= neutral_act_count <= len(s2indices[self.Sneu[0]])
-            neutral_act_count = local_budget - np.sum(actions)
-            assert neutral_act_count >= 0
-            assert neutral_act_count <= len(s2indices_fs[self.Sneu[0]]), "{}>{}".format(neutral_act_count, len(s2indices_fs[self.Sneu[0]]))
-            actions[s2indices_fs[self.Sneu[0]][0:neutral_act_count]] = 1
+            rem_local_budget = local_budget - np.sum(actions)
+            num_neutral_arms = len(s2indices_fs[self.Sneu[0]])
+            if self.rounding == "direct":
+                if rem_local_budget < 0:
+                    print("baka")
+                    # activate no neutral arms; rectify some arms that take active actions;
+                    actions[s2indices_fs[self.Sneu[0]]] = 0
+                    act_arms = np.where(actions == 1)[0]
+                    actions[act_arms[0:(-rem_local_budget)]] = 0
+                elif rem_local_budget > num_neutral_arms:
+                    print("baka")
+                    # activate all neutral arms; recfity some arms that take passive actions;
+                    actions[s2indices_fs[self.Sneu[0]]] = 1
+                    pas_arms = np.where(actions == 0)[0]
+                    actions[pas_arms[0:(rem_local_budget - num_neutral_arms)]] = 1
+                else:
+                    actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
+            elif self.rounding == "misocp":
+                assert rem_local_budget >= 0
+                assert rem_local_budget <= num_neutral_arms, "{}>{}".format(rem_local_budget, num_neutral_arms)
+                actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
+            else:
+                raise NotImplementedError
             assert np.sum(actions[cur_OL_set]) == local_budget, "Error: {}!={}".format(np.sum(actions[cur_OL_set]), local_budget)
 
         # for this version, just use ID policy for the actions outside the OL set

@@ -18,11 +18,11 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
         setting = rb_settings.Gast20Example2()
     elif setting_name == "non-sa":
         setting = rb_settings.NonSAExample()
-    elif setting_name == "eight-states-055":
+    elif setting_name == "eight-states-045":
         probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-        setting.suggest_act_frac = 0.55
+        setting.suggest_act_frac = 0.45
     elif setting_path is not None:
         setting = rb_settings.ExampleFromFile(setting_path)
     else:
@@ -187,6 +187,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     full_reward_trace[i,N].append(instant_reward)
             elif policy_name == "twoset-v1":
                 policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U)
+                print("eta=", policy.eta)
                 for t in range(T):
                     cur_states = rb.get_states()
                     OL_set = policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set) ###
@@ -283,7 +284,7 @@ def figure_from_multiple_files():
 
 if __name__ == "__main__":
     for setting_name in ["eight-states-045"]:   #["eight-states", "three-states", "non-sa"]:
-        for policy_name in ["lppriority"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+        for policy_name in ["setopt-priority"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
             tic = time.time()
             run_policies(setting_name, policy_name, "bad", 10000)
             toc = time.time()

@@ -1392,7 +1392,7 @@ class TwoSetPolicy(object):
         if rounding == "direct":
             self.z = cp.Variable(self.sspa_size)
         elif rounding == "misocp":
-            self.z = cp.Variable(self.sspa_size, integer=True)
+            self.Nz = cp.Variable(self.sspa_size, integer=True)
         else:
             raise NotImplementedError
         self.m = cp.Variable()
@@ -1461,25 +1461,51 @@ class TwoSetPolicy(object):
             z_temp = s_count_scaled_fs
         else:
             # shrink the OL set
+            if self.rounding == "direct":
+                constrs = []
+                constrs.append(self.z >= 0)
+                constrs.append(self.z <= self.s_count_scaled_fs)
+                constrs.append(self.m == cp.sum(self.z))
+                constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.z - self.m*self.state_probs)))
+                objective = cp.Maximize(self.m)
+                problem = cp.Problem(objective, constrs)
+                problem.solve()
+                z_temp = self.z.value.copy()
+            elif self.rounding == "misocp":
+                constrs = []
+                constrs.append(self.Nz >= 0)
+                constrs.append(self.Nz <= self.N*self.s_count_scaled_fs)
+                constrs.append(self.m == cp.sum(self.Nz) / self.N)
+                constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.Nz / self.N - self.m*self.state_probs)))
+                objective = cp.Maximize(self.m)
+                problem = cp.Problem(objective, constrs)
+                problem.solve()
+                z_temp = self.Nz.value.copy() / self.N
+            else:
+                raise NotImplementedError
+        # then solve for the next OL set
+        if self.rounding == "direct":
             constrs = []
-            constrs.append(self.z >= 0)
-            constrs.append(self.z <= self.s_count_scaled_fs)
+            constrs.append(self.z >= z_temp)
+            constrs.append(self.z <= self.s_count_scaled)
             constrs.append(self.m == cp.sum(self.z))
             constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.z - self.m*self.state_probs)))
             objective = cp.Maximize(self.m)
             problem = cp.Problem(objective, constrs)
             problem.solve()
-            z_temp = self.z.value.copy()
-        # then solve for the next OL set
-        constrs = []
-        constrs.append(self.z >= 0)
-        constrs.append(self.z <= self.s_count_scaled)
-        constrs.append(self.m == cp.sum(self.z))
-        constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.z - self.m*self.state_probs)))
-        objective = cp.Maximize(self.m)
-        problem = cp.Problem(objective, constrs)
-        problem.solve()
-        z_OL = self.z.value.copy()
+            z_OL = self.z.value.copy()
+        elif self.rounding == "misocp":
+            constrs = []
+            constrs.append(self.Nz >= self.N*z_temp)
+            constrs.append(self.Nz <= self.N*self.s_count_scaled)
+            constrs.append(self.m == cp.sum(self.Nz) / self.N)
+            constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.Nz / self.N - self.m*self.state_probs)))
+            objective = cp.Maximize(self.m)
+            problem = cp.Problem(objective, constrs)
+            problem.solve()
+            z_OL = self.z.value.copy()
+        else:
+            raise NotImplementedError
 
         next_OL_set = []
         for s in self.sspa:
@@ -1524,27 +1550,27 @@ class TwoSetPolicy(object):
                 actions[s2indices_fs[state][0:act_count]] = 1
             rem_local_budget = local_budget - np.sum(actions)
             num_neutral_arms = len(s2indices_fs[self.Sneu[0]])
-            if self.rounding == "direct":
-                if rem_local_budget < 0:
-                    print("baka")
-                    # activate no neutral arms; rectify some arms that take active actions;
-                    actions[s2indices_fs[self.Sneu[0]]] = 0
-                    act_arms = np.where(actions == 1)[0]
-                    actions[act_arms[0:(-rem_local_budget)]] = 0
-                elif rem_local_budget > num_neutral_arms:
-                    print("baka")
-                    # activate all neutral arms; recfity some arms that take passive actions;
-                    actions[s2indices_fs[self.Sneu[0]]] = 1
-                    pas_arms = np.where(actions == 0)[0]
-                    actions[pas_arms[0:(rem_local_budget - num_neutral_arms)]] = 1
-                else:
-                    actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
-            elif self.rounding == "misocp":
-                assert rem_local_budget >= 0
-                assert rem_local_budget <= num_neutral_arms, "{}>{}".format(rem_local_budget, num_neutral_arms)
-                actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
+            # if self.rounding == "direct":
+            if rem_local_budget < 0:
+                print("baka")
+                # activate no neutral arms; rectify some arms that take active actions;
+                actions[s2indices_fs[self.Sneu[0]]] = 0
+                act_arms = np.where(actions == 1)[0]
+                actions[act_arms[0:(-rem_local_budget)]] = 0
+            elif rem_local_budget > num_neutral_arms:
+                print("baka")
+                # activate all neutral arms; recfity some arms that take passive actions;
+                actions[s2indices_fs[self.Sneu[0]]] = 1
+                pas_arms = np.where(actions == 0)[0]
+                actions[pas_arms[0:(rem_local_budget - num_neutral_arms)]] = 1
             else:
-                raise NotImplementedError
+                actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
+            # elif self.rounding == "misocp":
+            #     assert rem_local_budget >= 0
+            #     assert rem_local_budget <= num_neutral_arms, "{}>{}".format(rem_local_budget, num_neutral_arms)
+            #     actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
+            # else:
+            #     raise NotImplementedError
             assert np.sum(actions[cur_OL_set]) == local_budget, "Error: {}!={}".format(np.sum(actions[cur_OL_set]), local_budget)
 
         # for this version, just use ID policy for the actions outside the OL set

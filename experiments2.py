@@ -284,7 +284,7 @@ def figure_from_multiple_files():
 
 if __name__ == "__main__":
     for setting_name in ["eight-states-045"]:   #["eight-states", "three-states", "non-sa"]:
-        for policy_name in ["setopt-priority"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+        for policy_name in ["twoset-v1"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
             tic = time.time()
             run_policies(setting_name, policy_name, "bad", 10000)
             toc = time.time()

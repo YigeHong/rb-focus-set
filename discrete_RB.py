@@ -1555,13 +1555,13 @@ class TwoSetPolicy(object):
                 print("baka")
                 # activate no neutral arms; rectify some arms that take active actions;
                 actions[s2indices_fs[self.Sneu[0]]] = 0
-                act_arms = np.where(actions == 1)[0]
+                act_arms = np.where(np.all([actions == 1, cur_OL_set_mask], axis=0))[0]
                 actions[act_arms[0:(-rem_local_budget)]] = 0
             elif rem_local_budget > num_neutral_arms:
                 print("baka")
                 # activate all neutral arms; recfity some arms that take passive actions;
                 actions[s2indices_fs[self.Sneu[0]]] = 1
-                pas_arms = np.where(actions == 0)[0]
+                pas_arms = np.where(np.all([actions == 0, cur_OL_set_mask], axis=0))[0]
                 actions[pas_arms[0:(rem_local_budget - num_neutral_arms)]] = 1
             else:
                 actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1

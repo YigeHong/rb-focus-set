@@ -141,14 +141,14 @@ def edit_data():
         pickle.dump(data_dict, f)
 
 def test_run_policies():
-    probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
-    setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    # probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
+    # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    # setting.suggest_act_frac = 0.45
     # setting = rb_settings.Gast20Example2()
     # setting = rb_settings.NonSAExample()
-    # setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(4)")
-    N = 2000
-    act_frac = 0.45
-    # act_frac = setting.suggest_act_frac
+    setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(0)")
+    N = 1000
+    act_frac = setting.suggest_act_frac
     rb_settings.print_bandit(setting)
 
     # init_states = np.random.choice(sspa, N, replace=True)
@@ -194,16 +194,16 @@ def test_run_policies():
     #         s_fracs = np.sum(sa_fracs, axis=1)
     #         print("t={}\ns_fracs={}".format(t, s_fracs))
     # print("avg reward = {}".format(total_reward / T))
-    for t in range(T):
-        cur_states = rb.get_states()
-        actions = id_policy.get_actions(cur_states)
-        instant_reward = rb.step(actions)
-        total_reward += instant_reward
-        if t%100 == 0:
-            sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
-            s_fracs = np.sum(sa_fracs, axis=1)
-            print("t={}\ns_fracs={}".format(t, s_fracs))
-    print("avg reward = {}".format(total_reward / T))
+    # for t in range(T):
+    #     cur_states = rb.get_states()
+    #     actions = id_policy.get_actions(cur_states)
+    #     instant_reward = rb.step(actions)
+    #     total_reward += instant_reward
+    #     if t%100 == 0:
+    #         sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
+    #         s_fracs = np.sum(sa_fracs, axis=1)
+    #         print("t={}\ns_fracs={}".format(t, s_fracs))
+    # print("avg reward = {}".format(total_reward / T))
     # for t in range(T):
     #     cur_states = rb.get_states()
     #     focus_set, non_shrink_flag = setexp_policy.get_new_focus_set(cur_states=cur_states, last_focus_set=focus_set)
@@ -252,20 +252,20 @@ def test_run_policies():
     #         print("conformity count = {}".format(conformity_count))
     # print("avg reward = {}".format(total_reward / T))
     # print("avg focus set size = {}".format(total_focus_set_size / T))
-    # for t in range(T):
-    #     cur_states = rb.get_states()
-    #     OL_set = twoset_policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set) ###
-    #     actions = twoset_policy.get_actions(cur_states, OL_set)
-    #     instant_reward = rb.step(actions)
-    #     total_reward += instant_reward
-    #     total_OL_set_size += len(OL_set)
-    #     if t%100 == 0:
-    #         sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
-    #         s_fracs = np.sum(sa_fracs, axis=1)
-    #         print("t={}\ns_fracs={}".format(t, s_fracs))
-    #         print("OL set size before rounding={}, after rounding={}".format((twoset_policy.m.value or 0)*N, len(OL_set)))
-    # print("avg reward = {}".format(total_reward / T))
-    # print("avg OL set size = {}".format(total_OL_set_size / T))
+    for t in range(T):
+        cur_states = rb.get_states()
+        OL_set = twoset_policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set) ###
+        actions = twoset_policy.get_actions(cur_states, OL_set)
+        instant_reward = rb.step(actions)
+        total_reward += instant_reward
+        total_OL_set_size += len(OL_set)
+        if t%100 == 0:
+            sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
+            s_fracs = np.sum(sa_fracs, axis=1)
+            print("t={}\ns_fracs={}".format(t, s_fracs))
+            print("OL set size before rounding={}, after rounding={}".format((twoset_policy.m.value or 0)*N, len(OL_set)))
+    print("avg reward = {}".format(total_reward / T))
+    print("avg OL set size = {}".format(total_OL_set_size / T))
 
 
 

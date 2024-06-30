@@ -144,7 +144,7 @@ class SingleArmAnalyzer(object):
         self.EPS = 1e-7  # any numbers smaller than this are regard as zero
         min_reward = np.min(self.reward_tensor)
         max_reward = np.max(self.reward_tensor)
-        self.DUALSTEP = 0.05 # the discretization step size of dual variable when solving for Whittle's index
+        self.DUALSTEP = (max_reward - min_reward) / 10 # 0.05 # the discretization step size of dual variable when solving for Whittle's index
         self.MINSUBSIDY = - (max_reward - min_reward) - self.DUALSTEP # a lower bound on the set of possible subsidies
         self.MAXSUBSIDY = (max_reward - min_reward) + self.DUALSTEP  # an upper bound on the set of possible subsidies
 
@@ -272,14 +272,30 @@ class SingleArmAnalyzer(object):
         passive_table = np.zeros((self.sspa_size, len(subsidy_values))) # each row is a state, each column is a dual value
         for i, subsidy in enumerate(subsidy_values):
             self.dualvar.value = subsidy
-            problem.solve()
+            # if i == len(subsidy_values) - 1:
+            #     print(relaxed_objective)
+            #     subsidy_reward_1 = self.reward_tensor[:,1]
+            #     subsidy_reward_0 = self.reward_tensor[:,0] + self.dualvar
+            #     constrs.append(cp.sum(cp.multiply(self.y[:,1], subsidy_reward_1))
+            #                             + cp.sum(cp.multiply(self.y[:,0], subsidy_reward_0)) >= 0.10)
+            #     problem = cp.Problem(relaxed_objective, constrs)
+            #     problem.solve(verbose=True)
+            #     print(self.y.value)
+            # else:
+            #     problem.solve()
+            problem.solve(abstol=1e-13)
             for state in self.sspa:
                 if (self.y.value[state, 0] > self.EPS) and (self.y.value[state, 1] < self.EPS):
                     passive_table[state, i] = 1
+                elif (self.y.value[state, 0] <= self.EPS) and (self.y.value[state, 1] < self.EPS):
+                    passive_table[state, i] = 2
+        print(passive_table)
         wi2state = {}
         for state in self.sspa:
             approx_wi = np.where(passive_table[state, :])[0][0]  # find the smallest subsidy such that state becomes passive
             indexable = np.all(passive_table[state, approx_wi:] == 1)  # check indexability
+            if not indexable:
+                print("Warning: non-indexable")
             if approx_wi not in wi2state:
                 wi2state[approx_wi] = [state]
             else:
@@ -370,7 +386,7 @@ class SingleArmAnalyzer(object):
 
     def compute_U(self, abstol):
         Phi = self.compute_Phi()
-        if np.max(np.linalg.eigvals(Phi)) >= 1:
+        if np.max(np.abs(np.linalg.eigvals(Phi))) >= 1:
             return np.infty, np.infty
 
         Phi_power = np.eye(self.sspa_size)
@@ -1552,13 +1568,13 @@ class TwoSetPolicy(object):
             num_neutral_arms = len(s2indices_fs[self.Sneu[0]])
             # if self.rounding == "direct":
             if rem_local_budget < 0:
-                print("baka")
+                # print("baka", end=" ")
                 # activate no neutral arms; rectify some arms that take active actions;
                 actions[s2indices_fs[self.Sneu[0]]] = 0
                 act_arms = np.where(np.all([actions == 1, cur_OL_set_mask], axis=0))[0]
                 actions[act_arms[0:(-rem_local_budget)]] = 0
             elif rem_local_budget > num_neutral_arms:
-                print("baka")
+                # print("baka", end=" ")
                 # activate all neutral arms; recfity some arms that take passive actions;
                 actions[s2indices_fs[self.Sneu[0]]] = 1
                 pas_arms = np.where(np.all([actions == 0, cur_OL_set_mask], axis=0))[0]

@@ -28,7 +28,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
     else:
         raise NotImplementedError
     act_frac = setting.suggest_act_frac
-    Ns = list(range(100, 1100, 100))
+    Ns = list(range(100, 1100, 100))  # list(range(1500, 5500, 500))
     num_reps = 1
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
@@ -68,7 +68,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                 policy = IDPolicy(setting.sspa_size, y, N, act_frac)
                 for t in range(T):
                     cur_states = rb.get_states()
-                    actions = policy.get_actions(cur_states)
+                    actions, _ = policy.get_actions(cur_states)
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
@@ -195,6 +195,16 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+            elif policy_name == "twoset-integer":
+                policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U, rounding="misocp")
+                print("eta=", policy.eta)
+                for t in range(T):
+                    cur_states = rb.get_states()
+                    OL_set = policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set) ###
+                    actions = policy.get_actions(cur_states, OL_set)
+                    instant_reward = rb.step(actions)
+                    total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
             else:
                 raise NotImplementedError
             avg_reward = total_reward / T
@@ -224,17 +234,18 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
 
 
 def figure_from_multiple_files():
-    settings = ["random-size-3-uniform-({})".format(i) for i in range(5)] + ["eight-states", "three-states", "non-sa"]
-    policies = ["id", "ftva", "lppriority", "setexp", "setopt"]# , "setexp-priority", "setopt-priority", "twoset-v1"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
+    settings = ["eight-states", "three-states", "non-sa"] #["random-size-4-uniform-({})".format(i) for i in range(3)] + ["random-size-3-uniform-({})".format(i) for i in range(5)] + ["eight-states", "three-states", "non-sa", "eight-states-045"]
+    policies = ["id",  "setexp", "setopt", "setexp-priority", "ftva", "lppriority"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
+    linestyle_str = ["-",":","-.","--"]*10
     reward_array_dict = {}
-    Ns = np.array(list(range(100, 1100, 100)))
+    Ns = np.array(list(range(100,1100,100))) #np.array(list(range(1500, 5500, 500)))
     init_method = "random"
 
     for setting_name in settings:
         for policy_name in policies:
-            if (policy_name in ["id", "setexp", "setopt", "setexp-id", "setopt-id", "setopt-tight"]) or \
+            if (policy_name in ["id", "setexp", "setopt", "setexp-id", "setopt-id", "setopt-tight", "setexp-priority"]) or \
                     (setting_name not in ["eight-states", "three-states"]):
-                with open("fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, 100, 1000, init_method), 'rb') as f:
+                with open("fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method), 'rb') as f:
                     setting_and_data = pickle.load(f)
                     reward_array_dict[(setting_name, policy_name)] = setting_and_data["reward_array"]
                     print(setting_name, policy_name, reward_array_dict[(setting_name, policy_name)])
@@ -267,9 +278,9 @@ def figure_from_multiple_files():
                 setting_and_data = pickle.load(f)
                 upper_bound = setting_and_data["upper bound"]
         plt.plot(Ns, np.array([upper_bound] * len(Ns)), label="upper bound", linestyle="--")
-        for policy_name in policies:
+        for i,policy_name in enumerate(policies):
             plt.plot(Ns, np.average(reward_array_dict[(setting_name, policy_name)], axis=0), label=policy_name,
-                     linewidth=1.5)
+                     linewidth=1.5, linestyle=linestyle_str[i])
             plt.xlabel("N", fontsize=10)
         plt.title("Simulations for {} example".format(setting_name))
         plt.xticks(fontsize=10)
@@ -283,16 +294,16 @@ def figure_from_multiple_files():
 
 
 if __name__ == "__main__":
-    for setting_name in ["eight-states-045"]:   #["eight-states", "three-states", "non-sa"]:
-        for policy_name in ["twoset-v1"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
-            tic = time.time()
-            run_policies(setting_name, policy_name, "bad", 10000)
-            toc = time.time()
-            time_per_point = (toc - tic) / 10
-            print("when T=10000, time per data point =", time_per_point)
-    #
-    ## random examples
-    # for i in range(1,2):
+    # for setting_name in ["three-states", "eight-states", "non-sa"]: #["eight-states", "three-states", "non-sa"]:
+    #     for policy_name in ["setexp-priority"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+    #         tic = time.time()
+    #         run_policies(setting_name, policy_name, "random", 10000)
+    #         # run_policies(setting_name, policy_name, "same", 10000)
+    #         toc = time.time()
+    #         print("when T=10000, total_time per policy =", toc-tic)
+
+    ## random three-state examples
+    # for i in range(5):
     #     setting_path = "setting_data/random-size-3-uniform-({})".format(i)
     #     setting = rb_settings.ExampleFromFile(setting_path)
     #     rb_settings.print_bandit(setting)
@@ -300,4 +311,14 @@ if __name__ == "__main__":
     #     for policy_name in ["twoset-v1"]:
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
-    # figure_from_multiple_files()
+    # # random four-state examples
+    # for i in range(3):
+    #     setting_path = "setting_data/random-size-4-uniform-({})".format(i)
+    #     setting = rb_settings.ExampleFromFile(setting_path)
+    #     rb_settings.print_bandit(setting)
+    #     setting_name = "random-size-4-uniform-({})".format(i)
+    #     for policy_name in ["setexp-priority"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+    #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
+
+    figure_from_multiple_files()
+

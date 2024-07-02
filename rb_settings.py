@@ -296,9 +296,9 @@ def save_bandit(setting, f_path, other_params):
 if __name__ == '__main__':
     # generate and save some random settings
     np.random.seed(114514)
-    sspa_size = 3
+    sspa_size = 4
     distr = "uniform"
-    for i in range(5):
+    for i in range(3):
         setting = RandomExample(sspa_size, distr)
         f_path = "setting_data/random-size-{}-{}-({})".format(sspa_size, distr, i)
         save_bandit(setting, f_path, None)

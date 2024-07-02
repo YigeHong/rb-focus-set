@@ -142,11 +142,11 @@ class SingleArmAnalyzer(object):
         self.act_frac = act_frac
         # some constants
         self.EPS = 1e-7  # any numbers smaller than this are regard as zero
-        min_reward = np.min(self.reward_tensor)
-        max_reward = np.max(self.reward_tensor)
+        # min_reward = np.min(self.reward_tensor)
+        # max_reward = np.max(self.reward_tensor)
+        # self.MINPENALTY = - 5*(max_reward - min_reward)   # a lower bound on the range of penalty for active actions
+        # self.MAXPENALTY = 5*(max_reward - min_reward) # an upper bound on the range of possible penalty for active ations
         # self.DUALSTEP = (max_reward - min_reward) / 10 # 0.05 # the discretization step size of dual variable when solving for Whittle's index
-        self.MINPENALTY = - 10*(max_reward - min_reward)  # a lower bound on the set of possible penalty for active actions
-        self.MAXPENALTY = 10*(max_reward - min_reward)  # an upper bound on the set of possible penalty for active ations
 
         # variables
         self.y = cp.Variable((self.sspa_size, 2))
@@ -263,51 +263,25 @@ class SingleArmAnalyzer(object):
         priority_list = np.flip(np.argsort(self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0]))
         return list(priority_list)
 
-    # def solve_whittles_policy(self):
-    #     # solve a set of relaxed problem with different subsidy values, and find out the Whittle's index
-    #     relaxed_objective = self.get_relaxed_objective()
-    #     constrs = self.get_stationary_constraints() + self.get_basic_constraints()
-    #     problem = cp.Problem(relaxed_objective, constrs)
-    #     subsidy_values = np.arange(self.MINSUBSIDY, self.MAXSUBSIDY, self.DUALSTEP)
-    #     passive_table = np.zeros((self.sspa_size, len(subsidy_values))) # each row is a state, each column is a dual value
-    #     for i, subsidy in enumerate(subsidy_values):
-    #         self.dualvar.value = subsidy
-    #         # if i == len(subsidy_values) - 1:
-    #         #     print(relaxed_objective)
-    #         #     subsidy_reward_1 = self.reward_tensor[:,1]
-    #         #     subsidy_reward_0 = self.reward_tensor[:,0] + self.dualvar
-    #         #     constrs.append(cp.sum(cp.multiply(self.y[:,1], subsidy_reward_1))
-    #         #                             + cp.sum(cp.multiply(self.y[:,0], subsidy_reward_0)) >= 0.10)
-    #         #     problem = cp.Problem(relaxed_objective, constrs)
-    #         #     problem.solve(verbose=True)
-    #         #     print(self.y.value)
-    #         # else:
-    #         #     problem.solve()
-    #         problem.solve(abstol=1e-13)
-    #         for state in self.sspa:
-    #             if (self.y.value[state, 0] > self.EPS) and (self.y.value[state, 1] < self.EPS):
-    #                 passive_table[state, i] = 1
-    #             elif (self.y.value[state, 0] <= self.EPS) and (self.y.value[state, 1] < self.EPS):
-    #                 passive_table[state, i] = 2
-    #     print(passive_table)
-    #     wi2state = {}
-    #     for state in self.sspa:
-    #         approx_wi = np.where(passive_table[state, :])[0][0]  # find the smallest subsidy such that state becomes passive
-    #         indexable = np.all(passive_table[state, approx_wi:] == 1)  # check indexability
-    #         if not indexable:
-    #             print("Warning: non-indexable")
-    #         if approx_wi not in wi2state:
-    #             wi2state[approx_wi] = [state]
-    #         else:
-    #             print("Warning: two states have the same Whittle's index. Breaking ties favoring smaller states")
-    #             wi2state[approx_wi].append(state)
-    #     # sorting from states with large index to small index
-    #     wi2state_keys_sorted = sorted(wi2state.keys(), reverse=True)
-    #     wi2state_sorted = {key: wi2state[key] for key in wi2state_keys_sorted}
-    #     priority_list = []
-    #     for approx_wi in wi2state_sorted:
-    #         priority_list += wi2state_sorted[approx_wi]
-    #     return priority_list, indexable
+    def understand_lagrange_relaxation(self, lower, upper, stepsize):
+        # solve a set of relaxed problem with different subsidy values, and find out the Whittle's index
+        relaxed_objective = self.get_relaxed_objective()
+        constrs = self.get_stationary_constraints() + self.get_basic_constraints()
+        problem = cp.Problem(relaxed_objective, constrs)
+        subsidy_values = np.arange(lower, upper, stepsize)
+        state_type_table = np.ones((self.sspa_size, len(subsidy_values))) # each row is a state, each column is a dual value
+        for i, subsidy in enumerate(subsidy_values):
+            self.dualvar.value = subsidy
+            problem.solve(abstol=1e-13)
+            for state in self.sspa:
+                if (self.y.value[state, 0] > self.EPS) and (self.y.value[state, 1] < self.EPS):
+                    state_type_table[state, i] = 0
+                elif (self.y.value[state, 0] <= self.EPS) and (self.y.value[state, 1] < self.EPS):
+                    state_type_table[state, i] = 2
+            y = self.y.value * (self.y.value > self.EPS)
+            print(y.T)
+        print(state_type_table)
+
 
     def solve_whittles_policy(self):
         """
@@ -315,20 +289,26 @@ class SingleArmAnalyzer(object):
         return -2 if multichain
         otherwise return the whittle indices
         """
-        # iterates: mu^k_i, alpha^k_i, pi^k
-        # they are computed in the order: mu^{k-1}_i, pi^k -> alpha^k_i(mu^{k-1}_min) -> mu^k_i -> pi^{k+1}
-        # mu_table[k, i] = mu^k_i, pi_table[k,i] = pi^k_i
+        ## iterates: mu^k_i, alpha^k_i, pi^k
+        ## they are computed in the order: mu^{k-1}_i, pi^k -> alpha^k_i(mu^{k-1}_min) -> mu^k_i -> pi^{k+1}
+        ## mu_table[k, i] = mu^k_i, pi_table[k,i] = pi^k_i
         mu_table = np.infty * np.ones((self.sspa_size, self.sspa_size))
         whittle_indices = np.nan * np.ones((self.sspa_size,))
-        # a deterministic single-armed policy for the lagrange relaxed problem; entries denote probability of activation
+        ## a deterministic single-armed policy for the lagrange relaxed problem; entries denote probability of activation
         pi = np.ones((self.sspa_size,))
+        ## two useful quantities that are fixed over iterations
+        delta = self.reward_tensor[:,1] - self.reward_tensor[:,0]
+        Delta = self.trans_tensor[:,1,:] - self.trans_tensor[:,0,:]
+        Delta[:,0] = 0
         for k in range(self.sspa_size):
             if k == 0:
-                prev_mu_min = self.MINPENALTY
+                prev_mu_min = -np.infty #self.MINPENALTY
+                alpha_mu_prev = np.infty * np.ones((self.sspa_size,))
             else:
-                # find minimum among previously active states
-                prev_mu_min = np.min(mu_table[(k-1),:])
-            # evaluate the relative value function v_pi
+                prev_mu_min = cur_mu_min #np.min(mu_table[(k-1),:])
+                ## note that alpha^{pi^k}(mu^{k-1}) = alpha^{pi^{k-1}}(mu^{k-1})
+                alpha_mu_prev = alpha_mu_k
+            ## evaluate matrix A_pi for the current policy pi^k to test unichain
             r_pi = self.reward_tensor[:,1] * pi + self.reward_tensor[:,0] * (1-pi)
             P_pi = self.trans_tensor[:,1,:] * np.expand_dims(pi, axis=1) +  self.trans_tensor[:,0,:] * np.expand_dims((1-pi), axis=1)
             A_pi = np.eye(self.sspa_size)
@@ -337,38 +317,41 @@ class SingleArmAnalyzer(object):
             P_pi_modified[:,0] = 0
             A_pi = A_pi - P_pi_modified
             if np.linalg.cond(A_pi) > 1e8:
+                print("pi={}, np.linalg.cond(A_pi)={}".format(pi, np.linalg.cond(A_pi)))
                 return -2
-            v_pi = np.linalg.solve(A_pi, r_pi - prev_mu_min*pi)
-            # compute the advantage function alpha^k_i(mu^{k-1}_min)
-            delta = self.reward_tensor[:,1] - self.reward_tensor[:,0]
-            Delta = self.trans_tensor[:,1,:] - self.trans_tensor[:,0,:]
-            Delta[:,0] = 0
-            alpha_pi = delta - prev_mu_min*np.ones((self.sspa_size,)) + np.matmul(Delta, v_pi)
-            print("alpha pi", alpha_pi)
+            print("pi={}, lam={}, alpha mu prev={}".format(pi, prev_mu_min, alpha_mu_prev))
             # compute mu^k
             d_pi = np.linalg.solve(A_pi, -pi)
+            v_pi_pure = np.linalg.solve(A_pi, r_pi)
             for i in range(self.sspa_size):
                 if pi[i] == 0:
                     continue
                 else:
-                    assert alpha_pi[i] >= -self.EPS
-                    if alpha_pi[i] == 0:
+                    # assert alpha_pi[i] >= -self.EPS, "alpha_pi[{}]={}<0, but pi[{}]={}>0".format(i, alpha_pi[i], i, pi[i])
+                    if alpha_mu_prev[i] == 0:
                         mu_table[k, i] = prev_mu_min
                     else:
                         if 1 - np.matmul(Delta[i,:].T, d_pi) > 0:
-                            mu_table[k, i] = prev_mu_min +  alpha_pi[i] / (1-np.matmul(Delta[i,:].T, d_pi))
+                            # mu_table[k, i] = prev_mu_min +  alpha_pi[i] / (1-np.matmul(Delta[i,:].T, d_pi))
+                            mu_table[k, i] = (delta[i] + np.matmul(Delta[i,:].T, v_pi_pure)) / (1-np.matmul(Delta[i,:].T, d_pi))
                         else:
                             mu_table[k, i] = np.infty
             cur_mu_min = np.min(mu_table[k,:])
-            alpha_mu_k = alpha_pi  - (cur_mu_min - prev_mu_min) * (1 - np.matmul(Delta, d_pi))
+            # alpha_mu_k = alpha_pi  - (cur_mu_min - prev_mu_min) * (1 - np.matmul(Delta, d_pi))
+            ## compute alpha^{pi_k}(mu^k)
+            v_pi = np.linalg.solve(A_pi, r_pi - cur_mu_min*pi)
+            alpha_mu_k = delta - cur_mu_min*np.ones((self.sspa_size,)) + np.matmul(Delta, v_pi)
+            ## test indexability
             if (prev_mu_min < cur_mu_min - self.EPS) and np.any((alpha_mu_k>=self.EPS)*(1-pi)):
-                print(cur_mu_min)
-                print(pi)
-                print(alpha_mu_k)
+                # print(cur_mu_min)
+                # print(pi)
+                # print(alpha_mu_k)
                 return -1
+            ## return if cur_mu_min reach infty
             if cur_mu_min == np.infty:
                 whittle_indices[pi] = np.infty
                 return whittle_indices
+            ## update policy pi from pi^k to pi^{k+1}
             deactivate_states = np.where(np.all([alpha_mu_k < self.EPS, alpha_mu_k > -self.EPS], axis=0))[0]
             whittle_indices[deactivate_states] = cur_mu_min
             pi[deactivate_states] = 0

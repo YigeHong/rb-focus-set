@@ -207,10 +207,12 @@ class SingleArmAnalyzer(object):
         print("Optimal value ", self.opt_value)
         print("Optimal var")
         print(self.y.value)
-        print("---------------------------")
 
         # compute some essential quantities and for later use
         y = self.y.value
+        ## make sure y is non-negative and sums up to 1
+        y = y * (y>=0)
+        y = y / np.sum(y)
         self.state_probs = np.sum(y, axis=1)
         print("mu*=", self.state_probs)
         self.policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
@@ -221,11 +223,12 @@ class SingleArmAnalyzer(object):
                 self.policy[state, 0] = 0.5
                 self.policy[state, 1] = 0.5
         print("pibs policy=", self.policy)
+        print("---------------------------")
         self.Ppibs = np.zeros((self.sspa_size, self.sspa_size,))
         for a in self.aspa:
             self.Ppibs += self.trans_tensor[:,a,:]*np.expand_dims(self.policy[:,a], axis=1)
 
-        return (self.opt_value, self.y.value)
+        return (self.opt_value, y)
 
     def solve_LP_Priority(self, fixed_dual=None):
         if fixed_dual is None:
@@ -250,6 +253,7 @@ class SingleArmAnalyzer(object):
         else:
             self.opt_subsidy = fixed_dual
 
+        print("---solving LP Priority----")
         print("lambda* = ", self.opt_subsidy)
         print("avg_reward = ", self.avg_reward)
         print("value_func = ", self.value_func_relaxed)
@@ -259,6 +263,7 @@ class SingleArmAnalyzer(object):
                 self.q_func_relaxed[i, j] = self.reward_tensor[i, j] + self.opt_subsidy * (j==0) - self.avg_reward + np.sum(self.trans_tensor[i, j, :] * self.value_func_relaxed)
         print("q func = ", self.q_func_relaxed)
         print("action gap =  ", self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0])
+        print("---------------------------")
 
         priority_list = np.flip(np.argsort(self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0]))
         return list(priority_list)
@@ -319,8 +324,8 @@ class SingleArmAnalyzer(object):
             if np.linalg.cond(A_pi) > 1e8:
                 print("pi={}, np.linalg.cond(A_pi)={}".format(pi, np.linalg.cond(A_pi)))
                 return -2
-            print("pi={}, lam={}, alpha mu prev={}".format(pi, prev_mu_min, alpha_mu_prev))
-            # compute mu^k
+            # print("pi={}, lam={}, alpha mu prev={}".format(pi, prev_mu_min, alpha_mu_prev))
+            ## compute mu^k
             d_pi = np.linalg.solve(A_pi, -pi)
             v_pi_pure = np.linalg.solve(A_pi, r_pi)
             for i in range(self.sspa_size):
@@ -415,6 +420,7 @@ class SingleArmAnalyzer(object):
     def compute_Phi(self):
         y = self.y.value
         ind_neu = np.where(np.all([y[:,0] > self.EPS, y[:,1] > self.EPS],axis=0))[0]
+        print("------computing Phi-------")
         print("ind_neu=", ind_neu)
         if len(ind_neu) == 0:
             Phi = self.Ppibs -  np.outer(np.ones((self.sspa_size,)), self.state_probs)
@@ -424,12 +430,12 @@ class SingleArmAnalyzer(object):
         moduli = [np.absolute(lam) for lam in np.linalg.eigvals(Phi)]
         spec_rad = max(moduli)
         # print the result
-        print(self.policy[:,1] - self.act_frac * np.ones((self.sspa_size,)))
-        print("P1=", self.trans_tensor[:,1,:])
-        print("P0=", self.trans_tensor[:,0,:])
-        print("Ppibs=", self.Ppibs)
+        # print("P1=", self.trans_tensor[:,1,:])
+        # print("P0=", self.trans_tensor[:,0,:])
+        # print("Ppibs=", self.Ppibs)
         print("Phi=", Phi)
         print("moduli of Phi's eigenvalues=", moduli)
+        print("---------------------------")
         return Phi
 
     def compute_U(self, abstol):

@@ -1,5 +1,7 @@
 import numpy as np
 import pickle
+from discrete_RB import SingleArmAnalyzer
+from matplotlib import pyplot as plt
 
 
 class Gast20Example1(object):
@@ -63,7 +65,7 @@ class Gast20Example3(object):
 
 
 class RandomExample(object):
-    def __init__(self, sspa_size, distr, verbose=False):
+    def __init__(self, sspa_size, distr, verbose=False, laziness=None, parameters=None):
         """
         :param sspa_size:
         :param distr: string, "uniform", or  "beta05" or "beta0"
@@ -78,6 +80,16 @@ class RandomExample(object):
             P1 = np.random.uniform(0, 1, size=(self.sspa_size, self.sspa_size))
             R0 = np.zeros((self.sspa_size,))
             R1 = np.random.uniform(0, 1, size=(self.sspa_size, ))
+        elif distr == "uniform-nzR0":
+            P0 = np.random.uniform(0, 1, size=(self.sspa_size, self.sspa_size))
+            P1 = np.random.uniform(0, 1, size=(self.sspa_size, self.sspa_size))
+            R0 = np.random.uniform(0, 1, size=(self.sspa_size, ))
+            R1 = np.random.uniform(0, 1, size=(self.sspa_size, ))
+        # elif distr == "uniform-symR":
+        #     P0 = np.random.uniform(0, 1, size=(self.sspa_size, self.sspa_size))
+        #     P1 = np.random.uniform(0, 1, size=(self.sspa_size, self.sspa_size))
+        #     R0 = np.random.uniform(-1, 1, size=(self.sspa_size, ))
+        #     R1 = np.random.uniform(-1, 1, size=(self.sspa_size, ))
         elif distr == "beta05":
             P0 = np.random.beta(0.5, 0.5, size=(self.sspa_size, self.sspa_size))
             P1 = np.random.beta(0.5, 0.5, size=(self.sspa_size, self.sspa_size))
@@ -88,10 +100,24 @@ class RandomExample(object):
             P1 = np.random.beta(0, 0, size=(self.sspa_size, self.sspa_size))
             R0 = np.zeros((self.sspa_size,))
             R1 = np.random.beta(0, 0, size=(self.sspa_size, ))
+        elif distr == "dirichlet":
+            if len(parameters) == 1:
+                alphas = [parameters[0]] * self.sspa_size
+            else:
+                alphas = parameters
+            P0 = np.random.dirichlet(alphas, self.sspa_size)
+            P1 = np.random.dirichlet(alphas, self.sspa_size)
+            R0 = np.random.dirichlet(alphas, 1)[0,:]
+            R1 = np.random.dirichlet(alphas, 1)[0,:]
+            P0 = P0 * (P0 >= 1e-7)
+            P1 = P1 * (P1 >= 1e-7)
         else:
             raise NotImplementedError
         P0 = P0 / np.sum(P0, axis=1, keepdims=True)
         P1 = P1 / np.sum(P1, axis=1, keepdims=True)
+        if laziness is not None:
+            P0 = (1-laziness) * np.eye(self.sspa_size) + laziness * P0
+            P1 = (1-laziness) * np.eye(self.sspa_size) + laziness * P1
         self.trans_tensor = np.stack([P0, P1], axis=1) # dimensions (state, action, next_state)
         self.reward_tensor = np.stack([R0, R1], axis=1) # dimensions (state, action)
         # make sure alpha is not too close to 0 or 1
@@ -104,6 +130,87 @@ class RandomExample(object):
             print("R1 = ", R1)
 
 
+class GeometricRandomExample(object):
+    def __init__(self, sspa_size, point_distr, edge_distr, threshold, reward_distr, verbose=False, laziness=None, parameters=None):
+        self.sspa_size = sspa_size
+        self.point_distr = point_distr
+        self.edge_distr = edge_distr
+        self.threshold = threshold
+        self.reward_distr = reward_distr
+        self.trans_tensor = np.zeros((sspa_size, 2, sspa_size))
+        self.parameters = parameters
+        if point_distr == "square":
+            if edge_distr == "uniform":
+                # for each action, generate a random graph
+                coordinates = []
+                # assume connected to oneself
+                adj_table = np.eye(sspa_size)
+                for i in range(sspa_size):
+                    coordinates.append(np.random.uniform(0,1,[2]))
+                coordinates = np.array(coordinates)
+                self.coordinates = coordinates
+                for i in range(sspa_size):
+                    for j in range(sspa_size):
+                        dist_ij = np.linalg.norm(coordinates[i,:] - coordinates[j,:])
+                        if dist_ij < threshold:
+                            adj_table[i,j] = 1
+                for i in range(sspa_size):
+                    num_neighbors = int(np.sum(adj_table[i,:]))
+                    neighbor_inds = np.where(adj_table[i,:])[0]
+                    for a in range(2):
+                        # uniform distribution on the simplex
+                        probs_on_neighbors = np.random.dirichlet([1]*num_neighbors, 1)
+                        # setting the probabilities
+                        self.trans_tensor[i,a, neighbor_inds] = probs_on_neighbors
+            else:
+                raise NotImplementedError
+        else:
+            raise NotImplementedError
+        if reward_distr == "uniform":
+            self.reward_tensor = np.random.uniform(0, 1, (sspa_size, 2))
+        elif reward_distr == "dirichlet":
+            alphas = [parameters["reward_alpha"]] * sspa_size
+            self.reward_tensor = np.random.dirichlet(alphas, 2).T
+        else:
+            raise NotImplementedError
+        self.suggest_act_frac = np.random.uniform(0.1,0.9)
+
+    def save(self, f_path, other_params=None):
+        data_dict = {"sspa_size": self.sspa_size,
+         "trans_tensor": self.trans_tensor,
+         "reward_tensor": self.reward_tensor,
+         "point_distr": self.point_distr,
+         "edge_distr": self.edge_distr,
+         "threshold": self.threshold,
+         "reward_distr": self.reward_distr,
+         # "all_action_coordinates": setting.all_action_coordinates,
+         "coordinates": self.coordinates,
+         "suggest_act_frac": self.suggest_act_frac,
+          "parameters": self.parameters
+         }
+        if other_params is not None:
+            data_dict.update(other_params)
+        with open(f_path, 'wb') as f:
+            pickle.dump(data_dict, f)
+
+    def visualize_graph(self):
+        # fig, axes = plt.subplots(1, 2)
+        # for a in range(2):
+        #     for i in range(self.sspa_size):
+        #         for j in range(self.sspa_size):
+        #             coordinates = self.all_action_coordinates[0]
+        #             if self.trans_tensor[i,a,j] > 0:
+        #                 axes[a].plot([coordinates[i,0], coordinates[j,0]], [coordinates[i,1], coordinates[j,1]])
+        # plt.show()
+        fig, axes = plt.subplots(1, 2)
+        for a in range(2):
+            for i in range(self.sspa_size):
+                for j in range(self.sspa_size):
+                    coordinates = self.coordinates
+                    if self.trans_tensor[i,a,j] > 0.1:
+                        axes[a].plot([coordinates[i,0], coordinates[j,0]], [coordinates[i,1], coordinates[j,1]])
+        plt.show()
+
 
 
 class ExampleFromFile(object):
@@ -113,7 +220,7 @@ class ExampleFromFile(object):
         self.sspa_size = data_dict["sspa_size"]
         self.trans_tensor = data_dict["trans_tensor"]
         self.reward_tensor = data_dict["reward_tensor"]
-        self.distr = data_dict["distr"]
+        # self.distr = data_dict["distr"]
         self.suggest_act_frac = data_dict["suggest_act_frac"]
 
 
@@ -268,9 +375,59 @@ class NonSAExample(object):
         self.suggest_act_frac = 0.6
 
 
+class BigNonSAExample(object):
+    def __init__(self, version="v1"):
+        if version == "v1":
+            self.sspa_size = 11
+            action_script = [1,0,1,0,1, 1,1,1,0,0,0]
+            self.trans_tensor = np.zeros((11, 2, 11))
+            for i in range(11):
+                if i not in [8,10]:
+                    self.trans_tensor[i, action_script[i], i+1] = 1
+                    self.trans_tensor[i, 1-action_script[i], 0] = 1
+                else:
+                    continue
+
+            self.trans_tensor[8, action_script[8], 9] = 1/2
+            self.trans_tensor[8, action_script[8], 5] = 1/2
+            self.trans_tensor[8, 1-action_script[8], 0] = 1
+
+            self.trans_tensor[10, action_script[10], 8] = 1
+            self.trans_tensor[10, 1-action_script[10], 0] = 1
+
+            self.reward_tensor = np.zeros((11, 2))
+            for i in [5,6,7,8,9,10]:
+                self.reward_tensor[i, action_script[i]] = 1
+
+            self.suggest_act_frac = 3/7
+        else:
+            raise NotImplementedError
+
+
+class NonIndexableExample(object):
+    def __init__(self):
+        self.sspa_size = 3
+        P0 = [[0, 0.4156, 0.3942],
+              [0.5676, 0, 0.0133],
+              [0.0191, 0.1097, 0]]
+        P1 = [[0, 0.0903, 0.1301],
+              [0.1903, 0, 0.6234],
+              [0.2901, 0.3901, 0]]
+        for i in range(3):
+            P0[i][i] = 1 - np.sum(P0[i])
+            P1[i][i] = 1 - np.sum(P1[i])
+        R0 = [0.458, 0.5308, 0.6873]
+        R1 = [0.9631, 0.7963, 0.1057]
+
+        self.trans_tensor = np.array([P0, P1]).transpose((1,0,2)) # dimensions (state, action, next_state)
+        self.reward_tensor = np.array([R0, R1]).transpose((1,0)) # dimensions (state, action)
+
+        self.suggest_act_frac = 0.5 # it can be anything.
+
 
 def print_bandit(setting):
     #print("generated using {} distribution".format(self.distr))
+    print("------------Information of the bandits---------------")
     print("state space size = ", setting.sspa_size)
     print("P0 = \n", setting.trans_tensor[:,0,:])
     print("P1 = \n", setting.trans_tensor[:,1,:])
@@ -278,6 +435,7 @@ def print_bandit(setting):
     print("R1 = \n", setting.reward_tensor[:,1])
     if hasattr(setting, "suggest_act_frac"):
         print("suggest act frac = ", setting.suggest_act_frac)
+    print("---------------------------")
 
 
 def save_bandit(setting, f_path, other_params):
@@ -296,9 +454,58 @@ def save_bandit(setting, f_path, other_params):
 if __name__ == '__main__':
     # generate and save some random settings
     np.random.seed(114514)
-    sspa_size = 4
-    distr = "uniform"
-    for i in range(3):
-        setting = RandomExample(sspa_size, distr)
-        f_path = "setting_data/random-size-{}-{}-({})".format(sspa_size, distr, i)
-        save_bandit(setting, f_path, None)
+    np.set_printoptions(precision=3)
+    np.set_printoptions(linewidth=600)
+    np.set_printoptions(suppress=True)
+
+    # sspa_size = 10
+    # distr = "dirichlet"
+    # alpha = 0.05
+    # distr_and_parameter = distr + "-" + str(alpha)
+    # laziness = 0.3
+    # if laziness is not None:
+    #     distr_and_parameter = distr_and_parameter + "-lazy-" + str(laziness)
+    # for i in range(3):
+    #     setting = RandomExample(sspa_size, distr, laziness=laziness, parameters=[alpha])
+    #     f_path = "setting_data/random-size-{}-{}-({})".format(sspa_size, distr_and_parameter, i)
+    #     save_bandit(setting, f_path, {"alpha":alpha})
+    #     print_bandit(setting)
+    #     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, setting.suggest_act_frac)
+    #     y = analyzer.solve_lp()[1]
+    #     print(y)
+    #     W = analyzer.compute_W(abstol=1e-10)[0]
+    #     print("W=", W)
+    #     print("lambda_W = ", np.linalg.norm(W, ord=2))
+    #     U = analyzer.compute_U(abstol=1e-10)[0]
+    #     print("U=\n", U)
+    #     if U is not np.infty:
+    #         print("spectral norm of U=", np.max(np.abs(np.linalg.eigvals(U))))
+
+    sspa_size = 16
+    point_distr = "square"
+    edge_distr = "uniform"
+    threshold = 0.5
+    reward_distr = "uniform" #"dirichlet" or "uniform"
+    distr_and_parameter = "-".join([point_distr, edge_distr, "thresh="+str(threshold), reward_distr])
+    reward_alpha = 0.05
+    parameters = {"reward_alpha": reward_alpha}
+    if reward_distr == "dirichlet":
+        distr_and_parameter += "-" + str(reward_alpha)
+    for i in range(7):
+        setting = GeometricRandomExample(sspa_size, point_distr, edge_distr, threshold, reward_distr, parameters=parameters)
+        f_path = "setting_data/RG-{}-{}-({})".format(sspa_size, distr_and_parameter, i)
+        print(f_path)
+        setting.visualize_graph()
+        if i >=3:
+            setting.save(f_path)
+        print_bandit(setting)
+        analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, setting.suggest_act_frac)
+        y = analyzer.solve_lp()[1]
+        print(y)
+        W = analyzer.compute_W(abstol=1e-10)[0]
+        print("W=", W)
+        print("lambda_W = ", np.linalg.norm(W, ord=2))
+        U = analyzer.compute_U(abstol=1e-10)[0]
+        print("U=\n", U)
+        if U is not np.infty:
+            print("spectral norm of U=", np.max(np.abs(np.linalg.eigvals(U))))

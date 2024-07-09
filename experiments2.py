@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 import matplotlib as mpl
 
 
-def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
+def run_policies(setting_name, policy_name, init_method, T, setting_path=None, note=None):
     if setting_name == "eight-states":
         probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
@@ -23,31 +23,53 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
             "eg4action-gap-tb", 8)
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
         setting.suggest_act_frac = 0.45
+    elif setting_name == "new-eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.reward_tensor[0,1] = 0.02
+    elif setting_name == "new2-eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.reward_tensor[0,1] = 0.1/30
+    elif setting_name == "non-sa-big1":
+        setting = rb_settings.BigNonSAExample("v1")
     elif setting_path is not None:
         setting = rb_settings.ExampleFromFile(setting_path)
     else:
         raise NotImplementedError
     act_frac = setting.suggest_act_frac
-    Ns = list(range(100, 1100, 100))  # list(range(1500, 5500, 500))
+    Ns = list(range(100, 1100, 100))  #list(range(1500, 5500, 500)) # list(range(1000, 20000, 1000))
     num_reps = 1
+    print()
+    rb_settings.print_bandit(setting)
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     y = analyzer.solve_lp()[1]
     W = analyzer.compute_W(abstol=1e-10)[0]
+    # print("W=", W)
+    print("2*lambda_W = ", 2*np.linalg.norm(W, ord=2))
     if setting_name == "eight-states":
         priority_list = analyzer.solve_LP_Priority(fixed_dual=0)
     else:
         priority_list = analyzer.solve_LP_Priority()
     print("priority list =", priority_list)
-    Phi = analyzer.compute_Phi()
+    whittle_priority = analyzer.solve_whittles_policy()
+    print("Whittle priority=", whittle_priority)
     U = analyzer.compute_U(abstol=1e-10)[0]
-    print("U=\n", U)
-    print("spectral norm of Phi=", np.max(np.abs(np.linalg.eigvals(Phi))))
+    # print("U=\n", U)
+    if U is not np.infty:
+        print("spectral norm of U=", np.max(np.abs(np.linalg.eigvals(U))))
+    else:
+        print("U diverges, locally unstable")
 
     reward_array = np.nan * np.empty((num_reps, len(Ns)))
     full_reward_trace = {}
+    full_ideal_acts_trace = {}
     for i, N in enumerate(Ns):
         full_reward_trace[i,N] = []
+        full_ideal_acts_trace[i,N] = []
         for rep in range(num_reps):
             if init_method == "random":
                 init_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
@@ -68,10 +90,11 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                 policy = IDPolicy(setting.sspa_size, y, N, act_frac)
                 for t in range(T):
                     cur_states = rb.get_states()
-                    actions, _ = policy.get_actions(cur_states)
+                    actions, num_ideal_acts = policy.get_actions(cur_states)
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(num_ideal_acts)
                     # if t%100 == 0:
                     #     sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
                     #     s_fracs = np.sum(sa_fracs, axis=1)
@@ -88,6 +111,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(len(focus_set))
                     # if t%100 == 0:
                     #     sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
                     #     s_fracs = np.sum(sa_fracs, axis=1)
@@ -104,6 +128,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(len(focus_set))
                     # if t%100 == 0:
                     #     sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
                     #     s_fracs = np.sum(sa_fracs, axis=1)
@@ -120,6 +145,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(len(focus_set))
             elif policy_name == "setexp-id":
                 policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
                 for t in range(T):
@@ -132,6 +158,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(len(focus_set))
             elif policy_name == "setopt-id":
                 policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
                 for t in range(T):
@@ -142,6 +169,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(len(focus_set))
             elif policy_name == "setexp-priority":
                 policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
                 for t in range(T):
@@ -155,6 +183,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(len(focus_set))
             elif policy_name == "setopt-priority":
                 policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
                 for t in range(T):
@@ -166,19 +195,37 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(len(focus_set))
             elif policy_name == "ftva":
                 policy = FTVAPolicy(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, y=y, N=N,
                                     act_frac=act_frac, init_virtual=None)
                 for t in range(T):
                     prev_state = rb.get_states()
                     actions, virtual_actions = policy.get_actions(prev_state)
+                    num_good_arms = np.sum(np.all([actions==virtual_actions, prev_state==policy.virtual_states], axis=0))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     new_state = rb.get_states()
                     policy.virtual_step(prev_state, new_state, actions, virtual_actions)
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(num_good_arms)
             elif policy_name == "lppriority":
                 policy = PriorityPolicy(setting.sspa_size, priority_list, N=N, act_frac=act_frac)
+                for t in range(T):
+                    cur_states = rb.get_states()
+                    actions = policy.get_actions(cur_states)
+                    instant_reward = rb.step(actions)
+                    total_reward += instant_reward
+                    full_reward_trace[i,N].append(instant_reward)
+            elif policy_name == "whittle":
+                if whittle_priority is -1:
+                    print("Non-indexable!!!")
+                    return
+                elif whittle_priority is -2:
+                    print("Multichain!!!")
+                    return
+                else:
+                    policy = PriorityPolicy(setting.sspa_size, whittle_priority, N=N, act_frac=act_frac)
                 for t in range(T):
                     cur_states = rb.get_states()
                     actions = policy.get_actions(cur_states)
@@ -195,6 +242,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(len(OL_set))
             elif policy_name == "twoset-integer":
                 policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U, rounding="misocp")
                 print("eta=", policy.eta)
@@ -205,14 +253,20 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     full_reward_trace[i,N].append(instant_reward)
+                    full_ideal_acts_trace[i,N].append(len(OL_set))
             else:
                 raise NotImplementedError
             avg_reward = total_reward / T
             reward_array[rep, i] = avg_reward
-            print("setting={}, policy={}, N={}, rep_id={}, avg reward = {}".format(setting_name, policy_name, N, rep,
-                                                                                   avg_reward))
+            avg_idea_frac = np.sum(np.array(full_ideal_acts_trace[i,N])) / (T*N)
+            print("setting={}, policy={}, N={}, rep_id={}, avg reward = {}, avg ideal frac ={}".format(setting_name, policy_name, N, rep,
+                                                                                   avg_reward, avg_idea_frac))
 
-        with open("fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method), 'wb') as f:
+        if note is None:
+            data_file_name = "fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method)
+        else:
+            data_file_name = "fig_data/{}-{}-N{}-{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method, note)
+        with open(data_file_name, 'wb') as f:
             setting_and_data = {
                 "num_reps": num_reps,
                 "T": T,
@@ -226,6 +280,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
                 "setting": setting,
                 "reward_array": reward_array,
                 "full_reward_trace": full_reward_trace,
+                "full_ideal_acts_trace": full_ideal_acts_trace,
                 "y": y,
                 "W": W,
                 "upper bound": analyzer.opt_value
@@ -233,19 +288,23 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None):
             pickle.dump(setting_and_data, f)
 
 
-def figure_from_multiple_files():
-    settings = ["eight-states", "three-states", "non-sa"] #["random-size-4-uniform-({})".format(i) for i in range(3)] + ["random-size-3-uniform-({})".format(i) for i in range(5)] + ["eight-states", "three-states", "non-sa", "eight-states-045"]
-    policies = ["id",  "setexp", "setopt", "setexp-priority", "ftva", "lppriority"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
+def figure_from_multiple_files(note=None):
+    settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)]   # ["RG-16-square-uniform-thresh=0.5-uniform-({})".format(i) for i in range(3)] + ["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)] + ["random-size-4-uniform-({})".format(i) for i in range(3)] + ["random-size-3-uniform-({})".format(i) for i in range(5)] + ["non-sa-big1", "new2-eight-states", "new-eight-states", "eight-states", "three-states", "non-sa", "eight-states-045"]
+    policies = ["id", "setexp", "lppriority", "whittle"] #["id",  "setexp", "setopt", "setexp-priority", "ftva", "lppriority"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
     linestyle_str = ["-",":","-.","--"]*10
     reward_array_dict = {}
-    Ns = np.array(list(range(100,1100,100))) #np.array(list(range(1500, 5500, 500)))
+    Ns = np.array(list(range(100,1100,100))) #np.array(list(range(1500, 5500, 500))) # list(range(1000, 20000, 1000))
     init_method = "random"
 
     for setting_name in settings:
         for policy_name in policies:
             if (policy_name in ["id", "setexp", "setopt", "setexp-id", "setopt-id", "setopt-tight", "setexp-priority"]) or \
                     (setting_name not in ["eight-states", "three-states"]):
-                with open("fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method), 'rb') as f:
+                if note is None:
+                    file_name = "fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method)
+                else:
+                    file_name = "fig_data/{}-{}-N{}-{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method, note)
+                with open(file_name, 'rb') as f:
                     setting_and_data = pickle.load(f)
                     reward_array_dict[(setting_name, policy_name)] = setting_and_data["reward_array"]
                     print(setting_name, policy_name, reward_array_dict[(setting_name, policy_name)])
@@ -289,36 +348,65 @@ def figure_from_multiple_files():
         # plt.ylim([0, 1.1*upper_bound]) ###
         plt.grid()
         plt.legend()
-        plt.savefig("figs2/{}-N{}-{}-{}".format(setting_name, Ns[0], Ns[-1], init_method))
+        if note is None:
+            figname = "figs2/{}-N{}-{}-{}.png".format(setting_name, Ns[0], Ns[-1], init_method)
+        else:
+            figname = "figs2/{}-N{}-{}-{}-{}.png".format(setting_name, Ns[0], Ns[-1], init_method, note)
+        plt.savefig(figname)
         plt.show()
 
 
 if __name__ == "__main__":
-    # for setting_name in ["three-states", "eight-states", "non-sa"]: #["eight-states", "three-states", "non-sa"]:
-    #     for policy_name in ["setexp-priority"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+    np.set_printoptions(suppress=True)
+    np.set_printoptions(linewidth=600)
+    # for setting_name in ["non-sa-big1"]: #["eight-states", "three-states", "non-sa", "new-eight-states", "new2-eight-states"]:
+    #     for policy_name in ["ftva", "lppriority", "setexp-priority", "setopt"]: # ["id", "setexp", "setopt", "ftva", "lppriority", "setexp-priority", "twoset-v1"]
     #         tic = time.time()
-    #         run_policies(setting_name, policy_name, "random", 10000)
+    #         run_policies(setting_name, policy_name, "random", 10000) #, note="T2e4")
     #         # run_policies(setting_name, policy_name, "same", 10000)
     #         toc = time.time()
     #         print("when T=10000, total_time per policy =", toc-tic)
 
     ## random three-state examples
     # for i in range(5):
-    #     setting_path = "setting_data/random-size-3-uniform-({})".format(i)
-    #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     rb_settings.print_bandit(setting)
     #     setting_name = "random-size-3-uniform-({})".format(i)
+    #     setting_path = "setting_data/" + setting_name
+    #     setting = rb_settings.ExampleFromFile(setting_path)
     #     for policy_name in ["twoset-v1"]:
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
-    # # random four-state examples
+    ## random four-state examples
     # for i in range(3):
-    #     setting_path = "setting_data/random-size-4-uniform-({})".format(i)
-    #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     rb_settings.print_bandit(setting)
     #     setting_name = "random-size-4-uniform-({})".format(i)
+    #     setting_path = "setting_data/" + setting_name
+    #     setting = rb_settings.ExampleFromFile(setting_path)
     #     for policy_name in ["setexp-priority"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
-    figure_from_multiple_files()
+    ## random 8-state examples
+    # for laziness in [0.1, 0.2, 0.3]:
+    #     setting_name = "random-size-8-uniform-nzR0-lazy-{}-({})".format(laziness,0)
+    #     setting_path = "setting_data/" + setting_name
+    #     setting = rb_settings.ExampleFromFile(setting_path)
+    #     for policy_name in ["id", "setexp"]: #, "setopt", "ftva", "lppriority", "setopt-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+    #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
+
+
+    ## random 10-state dirichlet examples
+    for i in [4,6]:
+        setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
+        setting_path = "setting_data/" + setting_name
+        setting = rb_settings.ExampleFromFile(setting_path)
+        for policy_name in ["setopt"]: #, "setopt", "ftva", "lppriority", "setopt-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+            run_policies(setting_name, policy_name, "random", 20000, setting_path, note="T2e4")
+
+    # ## random 16-state RG examples
+    # for i in range(3):
+    #     setting_name = "RG-16-square-uniform-thresh=0.5-uniform-({})".format(i)
+    #     setting_path = "setting_data/" + setting_name
+    #     setting = rb_settings.ExampleFromFile(setting_path)
+    #     for policy_name in ["id", "setexp"]: #, "setopt", "ftva", "lppriority", "setopt-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+    #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
+
+    # figure_from_multiple_files(note=None)
 

@@ -8,6 +8,7 @@ along with a few helper functions
 import numpy as np
 import cvxpy as cp
 import scipy
+import warnings
 
 
 class RB(object):
@@ -195,7 +196,7 @@ class SingleArmAnalyzer(object):
                                         + cp.sum(cp.multiply(self.y[:,0], subsidy_reward_0)))
         return relaxed_objective
 
-    def solve_lp(self):
+    def solve_lp(self, verbose=True):
         """
         run this before doing anything
         """
@@ -203,10 +204,11 @@ class SingleArmAnalyzer(object):
         constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
         problem = cp.Problem(objective, constrs)
         self.opt_value = problem.solve()
-        print("--------LP relaxation solved, solution as below-------")
-        print("Optimal value ", self.opt_value)
-        print("Optimal var")
-        print(self.y.value)
+        if verbose:
+            print("--------LP relaxation solved, solution as below-------")
+            print("Optimal value ", self.opt_value)
+            print("Optimal var")
+            print(self.y.value)
 
         # compute some essential quantities and for later use
         y = self.y.value
@@ -214,7 +216,6 @@ class SingleArmAnalyzer(object):
         y = y * (y>=0)
         y = y / np.sum(y)
         self.state_probs = np.sum(y, axis=1)
-        print("mu*=", self.state_probs)
         self.policy = np.zeros((self.sspa_size, 2)) # conditional probability of actions given state
         for state in self.sspa:
             if self.state_probs[state] > self.EPS:
@@ -222,8 +223,10 @@ class SingleArmAnalyzer(object):
             else:
                 self.policy[state, 0] = 0.5
                 self.policy[state, 1] = 0.5
-        print("pibs policy=", self.policy)
-        print("---------------------------")
+        if verbose:
+            print("mu*=", self.state_probs)
+            print("pibs policy=", self.policy)
+            print("---------------------------")
         self.Ppibs = np.zeros((self.sspa_size, self.sspa_size,))
         for a in self.aspa:
             self.Ppibs += self.trans_tensor[:,a,:]*np.expand_dims(self.policy[:,a], axis=1)
@@ -417,14 +420,18 @@ class SingleArmAnalyzer(object):
             cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
         return upper_bounds, lower_bounds
 
-    def compute_Phi(self):
+    def compute_Phi(self, verbose=True):
         y = self.y.value
         ind_neu = np.where(np.all([y[:,0] > self.EPS, y[:,1] > self.EPS],axis=0))[0]
-        print("------computing Phi-------")
-        print("ind_neu=", ind_neu)
+        if verbose:
+            print("------computing Phi-------")
+            print("ind_neu=", ind_neu)
         if len(ind_neu) == 0:
             Phi = self.Ppibs -  np.outer(np.ones((self.sspa_size,)), self.state_probs)
         else:
+            if len(ind_neu) > 1:
+                warnings.warn("Multiple neutral state; using the first one for computing Phi")
+                ind_neu = ind_neu[0:1]
             Phi = self.Ppibs -  np.outer(np.ones((self.sspa_size,)), self.state_probs) \
                 - np.outer(self.policy[:,1] - self.act_frac * np.ones((self.sspa_size,)), self.trans_tensor[ind_neu,1,:] - self.trans_tensor[ind_neu,0,:])
         moduli = [np.absolute(lam) for lam in np.linalg.eigvals(Phi)]
@@ -433,9 +440,11 @@ class SingleArmAnalyzer(object):
         # print("P1=", self.trans_tensor[:,1,:])
         # print("P0=", self.trans_tensor[:,0,:])
         # print("Ppibs=", self.Ppibs)
-        print("Phi=", Phi)
-        print("moduli of Phi's eigenvalues=", moduli)
-        print("---------------------------")
+        if verbose:
+            print("Phi=", Phi)
+            print("moduli of Phi's eigenvalues=", moduli)
+            print("spectral radius of Phi=", spec_rad)
+            print("---------------------------")
         return Phi
 
     def compute_U(self, abstol):

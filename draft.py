@@ -10,6 +10,8 @@ from discrete_RB import *
 import rb_settings
 # from find_more_counterexamples import test_local_stability
 
+
+
 def test_repeated_solver():
     probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
     setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
@@ -146,10 +148,11 @@ def test_run_policies():
     probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
     setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
     # setting.suggest_act_frac = 0.45
+    setting.reward_tensor[0,1] = 0.1/5 #####
     # setting = rb_settings.Gast20Example2()
     # setting = rb_settings.NonSAExample()
     # setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(0)")
-    N = 5000
+    N = 1000
     act_frac = setting.suggest_act_frac
     rb_settings.print_bandit(setting)
 
@@ -190,7 +193,7 @@ def test_run_policies():
     OL_set =np.array([], dtype=int)
     total_focus_set_size = 0
     total_OL_set_size = 0
-    priority_policy = PriorityPolicy(setting.sspa_size, priority, N=N, act_frac=act_frac)
+    # priority_policy = PriorityPolicy(setting.sspa_size, priority, N=N, act_frac=act_frac)
     # for t in range(T):
     #     cur_states = rb.get_states()
     #     actions = priority_policy.get_actions(cur_states)
@@ -201,17 +204,17 @@ def test_run_policies():
     #         s_fracs = np.sum(sa_fracs, axis=1)
     #         print("t={}\ns_fracs={}".format(t, s_fracs))
     # print("avg reward = {}".format(total_reward / T))
-    # total_reward = 0
-    # for t in range(T):
-    #     cur_states = rb.get_states()
-    #     actions = id_policy.get_actions(cur_states)
-    #     instant_reward = rb.step(actions)
-    #     total_reward += instant_reward
-    #     if t%100 == 0:
-    #         sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
-    #         s_fracs = np.sum(sa_fracs, axis=1)
-    #         print("t={}\ns_fracs={}".format(t, s_fracs))
-    # print("avg reward = {}".format(total_reward / T))
+    total_reward = 0
+    for t in range(T):
+        cur_states = rb.get_states()
+        actions, _ = id_policy.get_actions(cur_states)
+        instant_reward = rb.step(actions)
+        total_reward += instant_reward
+        if t%100 == 0:
+            sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
+            s_fracs = np.sum(sa_fracs, axis=1)
+            print("t={}\ns_fracs={}".format(t, s_fracs))
+    print("avg reward = {}".format(total_reward / T))
     # total_reward = 0
     # for t in range(T):
     #     cur_states = rb.get_states()
@@ -308,20 +311,46 @@ def get_ID_max_norm_focus_set(cur_states, beta, opt_state_probs, norm, W=None, r
 
 
 def test_ID_focus_set():
-    probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
-    setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-    # setting.suggest_act_frac = 0.45
-    # setting = rb_settings.Gast20Example2()
-    # setting = rb_settings.NonSAExample()
+    setting_name = "random-size-4-uniform-(1)"
+    setting_path = "setting_data/" + setting_name
+    if setting_name == "eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    elif setting_name == "three-states":
+        setting = rb_settings.Gast20Example2()
+    elif setting_name == "non-sa":
+        setting = rb_settings.NonSAExample()
+    elif setting_name == "eight-states-045":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.suggest_act_frac = 0.45
+    elif setting_name == "new-eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.reward_tensor[0,1] = 0.02
+    elif setting_name == "new2-eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.reward_tensor[0,1] = 0.1/30
+    elif setting_path is not None:
+        setting = rb_settings.ExampleFromFile(setting_path)
+    else:
+        raise NotImplementedError
+
+
     # setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(0)")
-    N = 1000
+    N = 100
     act_frac = setting.suggest_act_frac
     beta = min(act_frac, 1-act_frac)
     rb_settings.print_bandit(setting)
 
     T = 1200
     T_ahead = 100
-    init_method = "bad" # "random" or "bad
+    init_method = "random" # "random" or "bad
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     y = analyzer.solve_lp()[1]
@@ -373,8 +402,8 @@ def test_ID_focus_set():
     plt.legend()
     plt.ylabel("budget-deviation bounds")
     plt.xlabel("T")
-    plt.title("{}, N={}, T_ahead={}, init method={}".format("eight-states example", N, T_ahead, init_method))
-    plt.savefig("figs2/ID-focus-set-compare/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}".format("norm-bounds", "eight-states", N, T, T_ahead, init_method))
+    plt.title("{}, N={}, T_ahead={}, init method={}".format(setting_name+" example", N, T_ahead, init_method))
+    plt.savefig("figs2/ID-focus-set-compare/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}.png".format("norm-bounds", setting_name, N, T, T_ahead, init_method))
     plt.show()
 
     # L1_focus_set_sizes = []
@@ -396,8 +425,8 @@ def test_ID_focus_set():
     plt.legend()
     plt.ylabel("set size / N")
     plt.xlabel("T")
-    plt.title("{}, N={}, T_ahead={}, init method={}".format("eight-states example", N, T_ahead, init_method))
-    plt.savefig("figs2/ID-focus-set-compare/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}".format("focus-set-sizes", "eight-states", N, T, T_ahead, init_method))
+    plt.title("{}, N={}, T_ahead={}, init method={}".format(setting_name+" example", N, T_ahead, init_method))
+    plt.savefig("figs2/ID-focus-set-compare/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}.png".format("focus-set-sizes", setting_name, N, T, T_ahead, init_method))
     plt.show()
 
 
@@ -477,12 +506,61 @@ def animate_ID_policy():
              writer="html")
     # plt.show()
 
+def understand_whittle_index():
+    probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
+    setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    # setting.suggest_act_frac = 0.45
+    # setting = rb_settings.Gast20Example2()
+    # setting = rb_settings.NonSAExample()
+    # setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(0)")
+    # setting = rb_settings.NonIndexableExample()
+    act_frac = setting.suggest_act_frac
+    # rb_settings.print_bandit(setting)
+    setting.reward_tensor[0,1] = 0.1/30
+
+    analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
+    y = analyzer.solve_lp()[1]
+    if (type(setting) == rb_settings.ConveyorExample) and (setting.suggest_act_frac == 0.5):
+        priority = analyzer.solve_LP_Priority(fixed_dual=0)
+    else:
+        priority = analyzer.solve_LP_Priority()
+    print("LP Priority=", priority)
+    whittle_priority = analyzer.solve_whittles_policy()
+    print("Whittle priority=", whittle_priority)
+    analyzer.understand_lagrange_relaxation(-0.1, 0.1, 0.005)
 
 
-np.random.seed(114514)
-np.set_printoptions(precision=5)
-test_run_policies()
+
+def understand_spatial_graph():
+    dim = 2
+    sspa_size = 16
+    r = 0.5
+    coordinates = []
+    adj_table = np.zeros((sspa_size, sspa_size))
+    for i in range(sspa_size):
+        coordinates.append(np.random.uniform(0,1,[2]))
+        # theta = np.random.uniform(0, 2*np.pi)
+        # coordinates.append([0.5*np.cos(theta)+0.5, 0.5*np.sin(theta)+0.5])
+    coordinates = np.array(coordinates)
+    plt.scatter(coordinates[:,0], coordinates[:,1])
+    for i in range(sspa_size):
+        for j in range(sspa_size):
+            dist_ij = np.linalg.norm(coordinates[i,:] - coordinates[j,:])
+            if dist_ij < r:
+                adj_table[i,j] = 1
+                plt.plot([coordinates[i,0], coordinates[j,0]], [coordinates[i,1], coordinates[j,1]])
+    plt.ylim([0,1])
+    plt.xlim([0,1])
+    plt.show()
+
+
+
+# np.random.seed(114514)
+np.set_printoptions(precision=3)
+np.set_printoptions(linewidth=800)
+# test_run_policies()
 # edit_data()
 # test_ID_focus_set()
 # animate_ID_policy()
-
+# understand_whittle_index()
+# understand_spatial_graph()

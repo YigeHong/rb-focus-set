@@ -203,7 +203,7 @@ class SingleArmAnalyzer(object):
         objective = self.get_objective()
         constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
         problem = cp.Problem(objective, constrs)
-        self.opt_value = problem.solve()
+        self.opt_value = problem.solve(verbose=True)
         if verbose:
             print("--------LP relaxation solved, solution as below-------")
             print("Optimal value ", self.opt_value)
@@ -233,7 +233,7 @@ class SingleArmAnalyzer(object):
 
         return (self.opt_value, y)
 
-    def solve_LP_Priority(self, fixed_dual=None):
+    def solve_LP_Priority(self, fixed_dual=None, verbose=True):
         if fixed_dual is None:
             objective = self.get_objective()
             constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
@@ -256,17 +256,19 @@ class SingleArmAnalyzer(object):
         else:
             self.opt_subsidy = fixed_dual
 
-        print("---solving LP Priority----")
-        print("lambda* = ", self.opt_subsidy)
-        print("avg_reward = ", self.avg_reward)
-        print("value_func = ", self.value_func_relaxed)
+        if verbose:
+            print("---solving LP Priority----")
+            print("lambda* = ", self.opt_subsidy)
+            print("avg_reward = ", self.avg_reward)
+            print("value_func = ", self.value_func_relaxed)
 
         for i in range(self.sspa_size):
             for j in range(2):
                 self.q_func_relaxed[i, j] = self.reward_tensor[i, j] + self.opt_subsidy * (j==0) - self.avg_reward + np.sum(self.trans_tensor[i, j, :] * self.value_func_relaxed)
-        print("q func = ", self.q_func_relaxed)
-        print("action gap =  ", self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0])
-        print("---------------------------")
+        if verbose:
+            print("q func = ", self.q_func_relaxed)
+            print("action gap =  ", self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0])
+            print("---------------------------")
 
         priority_list = np.flip(np.argsort(self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0]))
         return list(priority_list)
@@ -393,32 +395,26 @@ class SingleArmAnalyzer(object):
         return budget_reqs
 
     def get_future_budget_req_bounds_Lone(self, state_dist, T_ahead):
-        beta = min(self.act_frac, 1-self.act_frac)
         cur_state_dist = state_dist
-        upper_bounds = []
-        lower_bounds = []
+        bounds = []
         for t in range(T_ahead):
             cur_Lone_norm = np.linalg.norm(cur_state_dist - self.state_probs, ord=1)
-            upper_bounds.append(self.act_frac + beta * cur_Lone_norm)
-            lower_bounds.append(self.act_frac - beta * cur_Lone_norm)
+            bounds.append(cur_Lone_norm / 2)
             cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
-        return upper_bounds, lower_bounds
+        return bounds
 
     def get_future_budget_req_bounds_Wnorm(self, state_dist, T_ahead):
-        beta = min(self.act_frac, 1-self.act_frac)
         W = self.compute_W(abstol=1e-10)[0]
         cpibs = self.policy[:,1]
         ratiocw = np.sqrt(np.matmul(cpibs.T, np.linalg.solve(W, cpibs)))
         cur_state_dist = state_dist
-        upper_bounds = []
-        lower_bounds = []
+        bounds = []
         for t in range(T_ahead):
             x_minus_mu = cur_state_dist - self.state_probs
             cur_W_norm = np.sqrt(np.matmul(np.matmul(x_minus_mu.T, W), x_minus_mu))
-            upper_bounds.append(self.act_frac + beta / ratiocw * cur_W_norm)
-            lower_bounds.append(self.act_frac - beta / ratiocw * cur_W_norm)
+            bounds.append(cur_W_norm * ratiocw)
             cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
-        return upper_bounds, lower_bounds
+        return bounds
 
     def compute_Phi(self, verbose=True):
         y = self.y.value
@@ -1687,7 +1683,7 @@ class TwoSetPolicy(object):
         return actions
 
 def states_to_scaled_state_counts(sspa_size, N, states):
-    scaled_state_counts = np.zeros((sspa_size,)) # 2 is the action space size
+    scaled_state_counts = np.zeros((sspa_size,))
     for i in range(len(states)):
         s = int(states[i])
         scaled_state_counts[s] += 1

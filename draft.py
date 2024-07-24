@@ -9,7 +9,7 @@ import matplotlib.animation as animation
 from discrete_RB import *
 import rb_settings
 # from find_more_counterexamples import test_local_stability
-
+import os
 
 
 def test_repeated_solver():
@@ -64,43 +64,98 @@ def test_W_solver():
 
 
 def test_compute_future_max_req():
-    probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
-    setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-    # setting = rb_settings.Gast20Example2()
-    N = 100
+    setting_name = "non-sa-big1"  #"random-size-10-dirichlet-0.05-(355)" #"random-size-4-uniform-(1)"
+    setting_path = "setting_data/" + setting_name
+    if setting_name == "eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    elif setting_name == "three-states":
+        setting = rb_settings.Gast20Example2()
+    elif setting_name == "non-sa":
+        setting = rb_settings.NonSAExample()
+    elif setting_name == "non-sa-big1":
+        setting = rb_settings.BigNonSAExample()
+    elif setting_name == "eight-states-045":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.suggest_act_frac = 0.45
+    elif setting_name == "new-eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.reward_tensor[0,1] = 0.02
+    elif setting_name == "new2-eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.reward_tensor[0,1] = 0.1/30
+    elif setting_path is not None:
+        setting = rb_settings.ExampleFromFile(setting_path)
+    else:
+        raise NotImplementedError
+    N = 200
     act_frac = setting.suggest_act_frac
-    T_ahead = 100
+    T_ahead = 50
     num_points_show = 1
-    initialization = "transient" # or "transient" or "steady-state"
+    # initialization = "steady-state" #"transient" # or "transient" or "steady-state"
+    plot_W_norm = False
+    init_method = "random"
+    T_burn_in = 2000
+    rb_settings.print_bandit(setting)
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
-    analyzer.solve_lp()
+    y = analyzer.solve_lp()[1]
+    W = analyzer.compute_W(abstol=1e-10)[0]
+    print("lambda_W = ", np.linalg.norm(W, ord=2))
 
+    if init_method == "random":
+        init_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
+    elif init_method == "bad":
+        init_states = np.random.choice(np.arange(4, setting.sspa_size), N, replace=True)
+    else:
+        raise NotImplementedError
+    rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
+    id_policy = IDPolicy(setting.sspa_size, y, N, act_frac)
+    # burn in period
+    total_reward = 0
+    ideal_acts = []
+    states_trace = []
+    for t in range(T_burn_in):
+        cur_states = rb.get_states()
+        actions, num_ideal_act = id_policy.get_actions(cur_states)
+        instant_reward = rb.step(actions)
+        total_reward += instant_reward
+        states_trace.append(cur_states)
+        ideal_acts.append(num_ideal_act)
+    # start plotting
     Ts = np.arange(0, T_ahead)
-    budget_line = np.array([act_frac] * T_ahead)
-    plt.plot(Ts, budget_line, linestyle="--", label="budget")
-
+    budget_line = np.array([act_frac]*len(Ts))
     for i in range(num_points_show):
-        if initialization == "transient":
-            init_state_fracs = np.random.uniform(0, 1, size=(setting.sspa_size,))
-            init_state_fracs = init_state_fracs / np.sum(init_state_fracs)
-        elif initialization == "steady-state":
-            init_state_fracs = np.random.multinomial(N, analyzer.state_probs) / N
-        else:
-            raise NotImplementedError
+        # if initialization == "transient":
+        #     init_state_fracs = np.random.uniform(0, 1, size=(setting.sspa_size,))
+        #     init_state_fracs = init_state_fracs / np.sum(init_state_fracs)
+        # elif initialization == "steady-state":
+        #     init_state_fracs = np.random.multinomial(N, analyzer.state_probs) / N
+        # else:
+        #     raise NotImplementedError
+        init_state_fracs = states_to_scaled_state_counts(setting.sspa_size, N, cur_states)
         future_reqs =  analyzer.get_future_expected_budget_requirements(init_state_fracs, T_ahead)
         print("initial_frequenty=", init_state_fracs)
-        plt.plot(Ts, future_reqs, label="requirement")
+        plt.plot(Ts, future_reqs - budget_line, label="requirement")
 
-        Lone_upper, Lone_lower = analyzer.get_future_budget_req_bounds_Lone(init_state_fracs, T_ahead)
-        plt.plot(Ts, Lone_upper, linestyle=":", label="Lone upper")
-        plt.plot(Ts, Lone_lower, linestyle=":", label="Lone lower")
+        Lone_bounds = analyzer.get_future_budget_req_bounds_Lone(init_state_fracs, T_ahead)
+        plt.plot(Ts, Lone_bounds, linestyle="-.", label="L1 upper")
+        plt.plot(Ts, - Lone_bounds, linestyle="-.", label="L1 lower")
 
-        Wnorm_upper, Wnorm_lower = analyzer.get_future_budget_req_bounds_Wnorm(init_state_fracs, T_ahead)
-        plt.plot(Ts, Wnorm_upper, linestyle="-.", label="W norm upper")
-        plt.plot(Ts, Wnorm_lower, linestyle="-.", label="W norm lower")
+        if plot_W_norm:
+            W_norm_bounds = analyzer.get_future_budget_req_bounds_Wnorm(init_state_fracs, T_ahead)
+            plt.plot(Ts, W_norm_bounds, linestyle=":", label="W norm upper")
+            plt.plot(Ts, -W_norm_bounds, linestyle=":", label="W norm lower")
 
     plt.legend()
+    plt.savefig("figs2/future_budget_req_curves/future-budget-req-{}.png".format(setting_name))
     plt.show()
 
 
@@ -311,7 +366,7 @@ def get_ID_max_norm_focus_set(cur_states, beta, opt_state_probs, norm, W=None, r
 
 
 def test_ID_focus_set():
-    setting_name = "random-size-4-uniform-(1)"
+    setting_name = "new2-eight-states" #"random-size-10-dirichlet-0.05-(355)" #"random-size-4-uniform-(1)"
     setting_path = "setting_data/" + setting_name
     if setting_name == "eight-states":
         probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
@@ -321,6 +376,8 @@ def test_ID_focus_set():
         setting = rb_settings.Gast20Example2()
     elif setting_name == "non-sa":
         setting = rb_settings.NonSAExample()
+    elif setting_name == "non-sa-big1":
+        setting = rb_settings.BigNonSAExample()
     elif setting_name == "eight-states-045":
         probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
@@ -351,6 +408,7 @@ def test_ID_focus_set():
     T = 1200
     T_ahead = 100
     init_method = "random" # "random" or "bad
+    plot_W_norm = False
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     y = analyzer.solve_lp()[1]
@@ -393,11 +451,13 @@ def test_ID_focus_set():
         m = ideal_acts_lookahead_min[i]/N
         xmmu_diff = XD - m*analyzer.state_probs
         L1_norm_terms.append(np.linalg.norm(xmmu_diff, ord=1)/2)
-        W_norm_terms.append(np.sqrt(np.matmul(np.matmul(xmmu_diff.T, W), xmmu_diff))/2 * setexp_policy.ratiocw)
+        if plot_W_norm:
+            W_norm_terms.append(np.sqrt(np.matmul(np.matmul(xmmu_diff.T, W), xmmu_diff))/2 * setexp_policy.ratiocw)
         budget_window_sizes.append(beta*(1-m))
     plt.figure(figsize=(10,5))
     plt.plot(np.arange(T), L1_norm_terms, label="L1 norm term")
-    plt.plot(np.arange(T), W_norm_terms, label="W norm term")
+    if plot_W_norm:
+        plt.plot(np.arange(T), W_norm_terms, label="W norm term")
     plt.plot(np.arange(T), budget_window_sizes, label="budget window")
     plt.legend()
     plt.ylabel("budget-deviation bounds")
@@ -416,11 +476,13 @@ def test_ID_focus_set():
         # focus_set, _ = setexp_policy.get_new_focus_set(states_trace[i], np.array([]), subproblem="W")
         # LW_focus_set_sizes.append(len(focus_set))
         max_L1_focus_set_sizes.append(get_ID_max_norm_focus_set(states_trace[i], beta, analyzer.state_probs, norm="L1"))
-        max_W_focus_set_sizes.append(get_ID_max_norm_focus_set(states_trace[i], beta, analyzer.state_probs, norm="W",
-                                                                W=W, ratiocw=setexp_policy.ratiocw))
+        if plot_W_norm:
+            max_W_focus_set_sizes.append(get_ID_max_norm_focus_set(states_trace[i], beta, analyzer.state_probs, norm="W",
+                                                                    W=W, ratiocw=setexp_policy.ratiocw))
     plt.figure(figsize=(10,5))
     plt.plot(np.arange(T), np.array(max_L1_focus_set_sizes)/N, label="max L1 focus set")
-    plt.plot(np.arange(T), np.array(max_W_focus_set_sizes)/N, label="max W norm focus set")
+    if plot_W_norm:
+        plt.plot(np.arange(T), np.array(max_W_focus_set_sizes)/N, label="max W norm focus set")
     plt.plot(np.arange(T), np.array(ideal_acts_lookahead_min)/N, label="ID focus set")
     plt.legend()
     plt.ylabel("set size / N")
@@ -428,6 +490,60 @@ def test_ID_focus_set():
     plt.title("{}, N={}, T_ahead={}, init method={}".format(setting_name+" example", N, T_ahead, init_method))
     plt.savefig("figs2/ID-focus-set-compare/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}.png".format("focus-set-sizes", setting_name, N, T, T_ahead, init_method))
     plt.show()
+
+def visualize_focus_sets_from_file():
+    note = "T2e4"
+    setting_name = "new2-eight-states" #"random-size-10-dirichlet-0.05-(186)" #"non-sa-big1"
+    policies = ["id", "setexp"]
+    linestyle_str = ["-",":","-.","--"]*10
+    ideal_action_traces = {}
+    Ns = np.array(list(range(100,1100,100))) #np.array(list(range(1500, 5500, 500))) # list(range(1000, 20000, 1000))
+    init_method = "random"
+    i_of_N = 1
+    N = Ns[i_of_N]
+    T = 1000
+
+    for policy_name in policies:
+        if (policy_name in ["id", "setexp", "setopt", "setexp-id", "setopt-id", "setopt-tight", "setexp-priority"]) or \
+                (setting_name not in ["eight-states", "three-states"]):
+            file_name = "fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method)
+            if note is not None:
+                file_name_alter = "fig_data/{}-{}-N{}-{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method, note)
+                if os.path.exists(file_name_alter):
+                    file_name = file_name_alter
+            if policy_name == "whittle" and not os.path.exists(file_name):
+                continue
+            with open(file_name, 'rb') as f:
+                setting_and_data = pickle.load(f)
+                ideal_action_traces[policy_name] = setting_and_data["full_ideal_acts_trace"][(i_of_N, N)]
+                W = setting_and_data["W"]
+
+    # compute the look-ahead envelope
+    # T_ahead = int(2 * np.linalg.norm(W))
+    T_ahead = 100
+    print("T_ahead=", T_ahead)
+    ID_ideal_acts = ideal_action_traces["id"]
+    print(type(ID_ideal_acts))
+    ideal_acts_lookahead_min = []
+    for i in range(T):
+        ideal_acts_lookahead_min.append(min(ID_ideal_acts[i:(i+T_ahead)]))
+
+
+    plt.figure(figsize=(10,5))
+    for policy_name in policies:
+        plt.plot(np.arange(T), np.array(ideal_action_traces[policy_name][0:T])/N, label=policy_name)
+    plt.plot(np.arange(T), np.array(ideal_acts_lookahead_min) / N, label="ID lookahead")
+    plt.legend()
+    plt.ylabel("set size / N")
+    plt.xlabel("T")
+    plt.title("{}, N={}, init method={}".format(setting_name+" example", N, init_method))
+    plt.savefig("figs2/ideal-actions-compare/{}-{}-N-{}-T-{}-init-{}.png".format("ideal-actions-fractions", setting_name, N, T, init_method))
+    plt.show()
+
+
+
+
+
 
 
 def animate_ID_policy():
@@ -558,9 +674,11 @@ def understand_spatial_graph():
 # np.random.seed(114514)
 np.set_printoptions(precision=3)
 np.set_printoptions(linewidth=800)
+test_compute_future_max_req()
 # test_run_policies()
 # edit_data()
 # test_ID_focus_set()
+# visualize_focus_sets_from_file()
 # animate_ID_policy()
 # understand_whittle_index()
 # understand_spatial_graph()

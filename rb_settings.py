@@ -123,11 +123,26 @@ class RandomExample(object):
         # make sure alpha is not too close to 0 or 1
         self.suggest_act_frac = np.random.uniform(0.1,0.9)
 
+        self.unichain_eigval = None
+        self.local_stab_eigval = None
+        self.avg_reward_upper_bound = None
+        self.lp_priority = None
+        self.whittle_priority = None
+        self.avg_reward_lpp_mf_limit = None
+        self.avg_reward_whittle_mf_limit = None
+        self.reward_modifs = []
+
         if verbose:
             print("P0 = ", P0)
             print("P1 = ", P1)
             print("R0 = ", R0)
             print("R1 = ", R1)
+
+class RewardModification(object):
+    def __init__(self):
+        self.reward_tensor = None
+        self.avg_reward_mf_limit = None
+        self.avg_reward_upper_bound = None
 
 
 class GeometricRandomExample(object):
@@ -211,6 +226,52 @@ class GeometricRandomExample(object):
                         axes[a].plot([coordinates[i,0], coordinates[j,0]], [coordinates[i,1], coordinates[j,1]])
         plt.show()
 
+
+def ChungLuBeta2B(beta):
+    zeta = 0
+    num_terms_zeta = int((1e-8)**(-1/(beta-1)))
+    for k in range(1, num_terms_zeta):
+        zeta += k**(-beta)
+    B = 1 / ((beta-1)*zeta)
+    return B
+
+class ChungLuRandomExample(object):
+    def __init__(self, sspa_size, beta, B):
+        self.sspa_size = sspa_size
+        self.beta = beta
+        self.B = B
+        self.weights = np.array([((i+1)/(sspa_size*B))**(-1/(beta-1)) for i in range(self.sspa_size)])
+        print("CL model vertex weights=", self.weights)
+        self.total_weights = np.sum(self.weights)
+        self.trans_tensor = np.zeros((sspa_size, 2, sspa_size))
+
+        self.adj_tables = []
+        for a in range(2):
+            # assume connected to oneself
+            adj_table = np.eye(sspa_size)
+            for i in range(sspa_size):
+                for j in range(sspa_size):
+                    adj_table[i,j] = np.random.binomial(1, self.weights[i]*self.weights[j] / self.total_weights)
+            self.adj_tables.append(adj_table)
+            for i in range(sspa_size):
+                num_neighbors = int(np.sum(adj_table[i,:]))
+                neighbor_inds = np.where(adj_table[i,:])[0]
+                # uniform distribution on the simplex
+                probs_on_neighbors = np.random.dirichlet([1]*num_neighbors, 1)
+                # setting the probabilities
+                self.trans_tensor[i, a, neighbor_inds] = probs_on_neighbors
+
+        self.reward_tensor = np.random.dirichlet([1]*sspa_size, 2).T
+        self.suggest_act_frac = np.random.uniform(0.1, 0.9)
+
+        self.unichain_eigval = None
+        self.local_stab_eigval = None
+        self.avg_reward_upper_bound = None
+        self.lp_priority = None
+        self.whittle_priority = None
+        self.avg_reward_lpp_mf_limit = None
+        self.avg_reward_whittle_mf_limit = None
+        self.reward_modifs = []
 
 
 class ExampleFromFile(object):

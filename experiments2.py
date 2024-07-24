@@ -7,6 +7,7 @@ import time
 import pickle
 from matplotlib import pyplot as plt
 import matplotlib as mpl
+import os
 
 
 def run_policies(setting_name, policy_name, init_method, T, setting_path=None, note=None):
@@ -289,8 +290,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, n
 
 
 def figure_from_multiple_files(note=None):
-    settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in [4, 6]]   #["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)]   # ["RG-16-square-uniform-thresh=0.5-uniform-({})".format(i) for i in range(3)] + ["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)] + ["random-size-4-uniform-({})".format(i) for i in range(3)] + ["random-size-3-uniform-({})".format(i) for i in range(5)] + ["non-sa-big1", "new2-eight-states", "new-eight-states", "eight-states", "three-states", "non-sa", "eight-states-045"]
-    policies = ["id", "setexp", "setopt", "lppriority", "whittle"] #["id",  "setexp", "setopt", "setexp-priority", "ftva", "lppriority"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
+    settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in [355]] #[137, 186, 189, 210, 260, 355]]   #["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)]   # ["RG-16-square-uniform-thresh=0.5-uniform-({})".format(i) for i in range(3)] + ["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)] + ["random-size-4-uniform-({})".format(i) for i in range(3)] + ["random-size-3-uniform-({})".format(i) for i in range(5)] + ["non-sa-big1", "new2-eight-states", "new-eight-states", "eight-states", "three-states", "non-sa", "eight-states-045"]
+    policies = ["id", "setexp", "lppriority", "whittle", "ftva"] #["id", "setexp", "setopt", "lppriority", "whittle"] #["id",  "setexp", "setopt", "setexp-priority", "ftva", "lppriority"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
     linestyle_str = ["-",":","-.","--"]*10
     reward_array_dict = {}
     Ns = np.array(list(range(100,1100,100))) #np.array(list(range(1500, 5500, 500))) # list(range(1000, 20000, 1000))
@@ -300,10 +301,13 @@ def figure_from_multiple_files(note=None):
         for policy_name in policies:
             if (policy_name in ["id", "setexp", "setopt", "setexp-id", "setopt-id", "setopt-tight", "setexp-priority"]) or \
                     (setting_name not in ["eight-states", "three-states"]):
-                if note is None:
-                    file_name = "fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method)
-                else:
-                    file_name = "fig_data/{}-{}-N{}-{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method, note)
+                file_name = "fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method)
+                if note is not None:
+                    file_name_alter = "fig_data/{}-{}-N{}-{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method, note)
+                    if os.path.exists(file_name_alter):
+                        file_name = file_name_alter
+                if policy_name == "whittle" and not os.path.exists(file_name):
+                    continue
                 with open(file_name, 'rb') as f:
                     setting_and_data = pickle.load(f)
                     reward_array_dict[(setting_name, policy_name)] = setting_and_data["reward_array"]
@@ -333,13 +337,20 @@ def figure_from_multiple_files(note=None):
         elif setting_name == "non-sa":
             upper_bound = 1
         else:
-            with open("fig_data/{}-{}-N{}-{}-{}".format(setting_name, "id", 100, 1000, init_method), 'rb') as f:
+            files_w_prefix = [filename for filename in os.listdir("fig_data")
+                              if filename.startswith("{}-{}-N{}-{}-{}".format(setting_name, "id", 100, 1000, init_method))]
+            print(os.listdir("fig_data"))
+            with open("fig_data/"+files_w_prefix[0], 'rb') as f:
                 setting_and_data = pickle.load(f)
                 upper_bound = setting_and_data["upper bound"]
         plt.plot(Ns, np.array([upper_bound] * len(Ns)), label="upper bound", linestyle="--")
         for i,policy_name in enumerate(policies):
-            plt.plot(Ns, np.average(reward_array_dict[(setting_name, policy_name)], axis=0), label=policy_name,
+            if (policy_name == "whittle") and ((setting_name, policy_name) not in reward_array_dict):
+                plt.plot(Ns, [0]*len(Ns), label=policy_name,
                      linewidth=1.5, linestyle=linestyle_str[i])
+            else:
+                plt.plot(Ns, np.average(reward_array_dict[(setting_name, policy_name)], axis=0), label=policy_name,
+                         linewidth=1.5, linestyle=linestyle_str[i])
             plt.xlabel("N", fontsize=10)
         plt.title("Simulations for {} example".format(setting_name))
         plt.xticks(fontsize=10)
@@ -392,14 +403,14 @@ if __name__ == "__main__":
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
 
-    ## random 10-state dirichlet examples
-    # for i in [4,6]:
+    #random 10-state dirichlet examples
+    # for i in [355]: #[137, 186, 189, 210, 260]:
     #     setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
     #     setting_path = "setting_data/" + setting_name
     #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     for policy_name in ["setopt"]: #, "setopt", "ftva", "lppriority", "setopt-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+    #     for policy_name in ["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
     #         run_policies(setting_name, policy_name, "random", 20000, setting_path, note="T2e4")
-
+    # #
     # ## random 16-state RG examples
     # for i in range(3):
     #     setting_name = "RG-16-square-uniform-thresh=0.5-uniform-({})".format(i)
@@ -408,5 +419,5 @@ if __name__ == "__main__":
     #     for policy_name in ["id", "setexp"]: #, "setopt", "ftva", "lppriority", "setopt-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
-    figure_from_multiple_files(note=None)
+    figure_from_multiple_files(note="T2e4")
 

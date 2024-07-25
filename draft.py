@@ -64,7 +64,7 @@ def test_W_solver():
 
 
 def test_compute_future_max_req():
-    setting_name = "non-sa-big1"  #"random-size-10-dirichlet-0.05-(355)" #"random-size-4-uniform-(1)"
+    setting_name = "random-size-10-dirichlet-0.05-(6)" #"random-size-10-dirichlet-0.05-(355)"  #"random-size-10-dirichlet-0.05-(355)" #"random-size-4-uniform-(1)"
     setting_path = "setting_data/" + setting_name
     if setting_name == "eight-states":
         probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
@@ -97,12 +97,12 @@ def test_compute_future_max_req():
         raise NotImplementedError
     N = 200
     act_frac = setting.suggest_act_frac
-    T_ahead = 50
+    T_ahead = 100
     num_points_show = 1
     # initialization = "steady-state" #"transient" # or "transient" or "steady-state"
     plot_W_norm = False
     init_method = "random"
-    T_burn_in = 2000
+    T_burn_in = 1000
     rb_settings.print_bandit(setting)
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
@@ -144,6 +144,10 @@ def test_compute_future_max_req():
         future_reqs =  analyzer.get_future_expected_budget_requirements(init_state_fracs, T_ahead)
         print("initial_frequenty=", init_state_fracs)
         plt.plot(Ts, future_reqs - budget_line, label="requirement")
+        min_req_line = np.array([np.min(future_reqs - budget_line)]*len(Ts))
+        max_req_line = np.array([np.max(future_reqs - budget_line)]*len(Ts))
+        plt.plot(Ts, min_req_line, linestyle=":", label="min future req")
+        plt.plot(Ts, max_req_line, linestyle=":", label="max future req")
 
         Lone_bounds = analyzer.get_future_budget_req_bounds_Lone(init_state_fracs, T_ahead)
         plt.plot(Ts, Lone_bounds, linestyle="-.", label="L1 upper")
@@ -155,7 +159,11 @@ def test_compute_future_max_req():
             plt.plot(Ts, -W_norm_bounds, linestyle=":", label="W norm lower")
 
     plt.legend()
-    plt.savefig("figs2/future_budget_req_curves/future-budget-req-{}.png".format(setting_name))
+    if "dirichlet" in setting_name.split("-"):
+        short_name = "dirichlet-"+setting_name.split("-")[-1]
+    else:
+        short_name = setting_name
+    plt.savefig("figs2/future_budget_req_curves/future-budget-req-{}.png".format(short_name))
     plt.show()
 
 
@@ -366,7 +374,7 @@ def get_ID_max_norm_focus_set(cur_states, beta, opt_state_probs, norm, W=None, r
 
 
 def test_ID_focus_set():
-    setting_name = "new2-eight-states" #"random-size-10-dirichlet-0.05-(355)" #"random-size-4-uniform-(1)"
+    setting_name = "random-size-10-dirichlet-0.05-(6)"  #"random-size-10-dirichlet-0.05-(355)" #"random-size-4-uniform-(1)"
     setting_path = "setting_data/" + setting_name
     if setting_name == "eight-states":
         probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
@@ -493,7 +501,7 @@ def test_ID_focus_set():
 
 def visualize_focus_sets_from_file():
     note = "T2e4"
-    setting_name = "new2-eight-states" #"random-size-10-dirichlet-0.05-(186)" #"non-sa-big1"
+    setting_name = "random-size-10-dirichlet-0.05-(6)" #"new2-eight-states" #"random-size-10-dirichlet-0.05-(186)" #"non-sa-big1"
     policies = ["id", "setexp"]
     linestyle_str = ["-",":","-.","--"]*10
     ideal_action_traces = {}
@@ -674,11 +682,11 @@ def understand_spatial_graph():
 # np.random.seed(114514)
 np.set_printoptions(precision=3)
 np.set_printoptions(linewidth=800)
-test_compute_future_max_req()
+# test_compute_future_max_req()
 # test_run_policies()
 # edit_data()
 # test_ID_focus_set()
-# visualize_focus_sets_from_file()
+visualize_focus_sets_from_file()
 # animate_ID_policy()
 # understand_whittle_index()
 # understand_spatial_graph()

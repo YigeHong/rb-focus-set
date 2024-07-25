@@ -392,7 +392,7 @@ class SingleArmAnalyzer(object):
         for t in range(T_ahead):
             budget_reqs.append(np.matmul(self.policy[:,1].T, cur_state_dist))
             cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
-        return budget_reqs
+        return np.array(budget_reqs)
 
     def get_future_budget_req_bounds_Lone(self, state_dist, T_ahead):
         cur_state_dist = state_dist
@@ -401,7 +401,7 @@ class SingleArmAnalyzer(object):
             cur_Lone_norm = np.linalg.norm(cur_state_dist - self.state_probs, ord=1)
             bounds.append(cur_Lone_norm / 2)
             cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
-        return bounds
+        return np.array(bounds)
 
     def get_future_budget_req_bounds_Wnorm(self, state_dist, T_ahead):
         W = self.compute_W(abstol=1e-10)[0]
@@ -414,7 +414,7 @@ class SingleArmAnalyzer(object):
             cur_W_norm = np.sqrt(np.matmul(np.matmul(x_minus_mu.T, W), x_minus_mu))
             bounds.append(cur_W_norm * ratiocw)
             cur_state_dist = np.matmul(self.Ppibs.T, cur_state_dist)
-        return bounds
+        return np.array(bounds)
 
     def compute_Phi(self, verbose=True):
         y = self.y.value

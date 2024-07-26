@@ -90,7 +90,7 @@ def count_locally_unstable(alpha):
 
 def search_and_store_unstable_examples():
     # parameters
-    num_examples = 1000
+    num_examples = 10000
     num_reward_modif_examples = 0
     T_mf_simulation = 1000
     plot_subopt_cdf = False
@@ -101,7 +101,7 @@ def search_and_store_unstable_examples():
     sspa_size = 10
     distr = "dirichlet" #"uniform", "dirichlet", "CL
     laziness = None
-    alpha = 0.05
+    alpha = 0.1
     beta = 4 # > 3
     distr_and_parameter = distr
     if distr == "uniform":
@@ -192,17 +192,20 @@ def search_and_store_unstable_examples():
                         setting.reward_modifs.append(new_reward_modif)
 
     if make_scatter_plot:
-        eig_vals_list = np.zeros((sspa_size, 2))
+        eig_vals_list = []
         unstable_unichain_count = 0
         unichain_count = 0
         for i, setting in enumerate(all_data["examples"]):
-            eig_vals_list[i, 0] = setting.unichain_eigval
-            eig_vals_list[i, 1] = setting.local_stab_eigval
+            if setting is None:
+                continue
+            eig_vals_list.append([setting.unichain_eigval, setting.local_stab_eigval])
             if setting.unichain_eigval <= unichain_threshold:
                 unichain_count +=1
                 if setting.local_stab_eigval > 1:
                     unstable_unichain_count += 1
-        plt.scatter(eig_vals_list[:,0], eig_vals_list[:,1])
+        eig_vals_list = np.array(eig_vals_list)
+        colors = ["r" if eig_vals_list[i,1]>1 else "b" for i in range(eig_vals_list.shape[0])]
+        plt.scatter(eig_vals_list[:,0], eig_vals_list[:,1], c=colors, s=1)
         plt.plot([0,1], [1,1], linestyle="--", color="r")
         plt.plot([1,1], [0,1], linestyle="--", color="r")
         plt.xlabel("Second largest modulus of eigenvalues of P_pibs ")

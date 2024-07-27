@@ -89,7 +89,7 @@ def count_locally_unstable(alpha):
 
 
 def search_and_store_unstable_examples():
-    # parameters
+    ## parameters
     num_examples = 10000
     num_reward_modif_examples = 0
     T_mf_simulation = 1000
@@ -97,11 +97,17 @@ def search_and_store_unstable_examples():
     save_subopt_examples = False
     make_scatter_plot = False
     unichain_threshold = 0.95
-    # hyperparameters
+    ## simulation setting
+    do_simulation = True
+    simulate_up_to_ith = 6000 # only simulate the first simulate_up_to_ith examples that are non-UGAP
+    N = 500
+    simu_thousand_steps = 20 # simulate 1000*simu_thousand_steps many time steps
+    policy_names = ["lppriority", "whittle"]
+    ## hyperparameters
     sspa_size = 10
     distr = "dirichlet" #"uniform", "dirichlet", "CL
     laziness = None
-    alpha = 0.1
+    alpha = 0.05
     beta = 4 # > 3
     distr_and_parameter = distr
     if distr == "uniform":
@@ -117,6 +123,7 @@ def search_and_store_unstable_examples():
     # check if exists: if so, load data; if not, create new
     if not os.path.exists("random_example_data"):
         os.mkdir("random_example_data")
+    # load data of random examples
     file_path = "random_example_data/random-{}-{}".format(sspa_size, distr_and_parameter)
     if os.path.exists(file_path):
         with open(file_path, "rb") as f:
@@ -137,6 +144,20 @@ def search_and_store_unstable_examples():
         all_data["beta"] = beta
         all_data["laziness"] = laziness
         all_data["examples"] = []
+    # load data of simulations
+    simu_file_path = "random_example_data/simu-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
+    if os.path.exists(simu_file_path):
+        with open(simu_file_path, "rb") as f:
+            simu_data = pickle.load(f)
+    else:
+        simu_data = {}
+        simu_data["N"] = N
+        # simu_data[policy][i] stores the average value of the simulation from i*1000 to ((i+1)*1000-1) time steps
+        # simu_data[(policy+"-final-state")] stores the final state of the last simulation, i.e., the state at 1000*len(simu_data["LP-index"][i]) time step
+        for policy_name in policy_names:
+            simu_data[policy_name] =  [[] for i in range(num_examples)]
+            simu_data[(policy_name+"-final-state")] =  [None for i in range(num_examples)]
+
     # mode: search for new examples? add reward modification to existing example?
     num_exist_examples = len(all_data["examples"])
     if num_exist_examples < num_examples:
@@ -221,10 +242,14 @@ def search_and_store_unstable_examples():
     for i, setting in enumerate(all_data["examples"]):
         if setting is None:
             continue
+        if i >= simulate_up_to_ith:
+            continue
         if (setting.local_stab_eigval > 1) and (setting.unichain_eigval < 1):
             print("the {}-th example is locally unstable".format(i))
-            subopt_ratio = setting.avg_reward_lpp_mf_limit / setting.avg_reward_upper_bound
-            subopt_ratio_w = setting.avg_reward_whittle_mf_limit / setting.avg_reward_upper_bound
+            # subopt_ratio = setting.avg_reward_lpp_mf_limit / setting.avg_reward_upper_bound
+            # subopt_ratio_w = setting.avg_reward_whittle_mf_limit / setting.avg_reward_upper_bound
+            subopt_ratio = np.average(np.array(simu_data["lppriority"][i])) / setting.avg_reward_upper_bound
+            subopt_ratio_w = np.average(np.array(simu_data["whittle"][i])) / setting.avg_reward_upper_bound
             subopt_ratios.append(subopt_ratio)
             subopt_ratios_w.append(subopt_ratio_w)
             if subopt_ratio < 0.9:
@@ -247,7 +272,7 @@ def search_and_store_unstable_examples():
             ax = fig.add_subplot(111)
             fig.subplots_adjust(top=0.8)
             data = np.sort(data)
-            # print(bisect(data, 0.9) / len(data), bisect(data, 0.95) / len(data))
+            print(bisect(data, 0.9) / len(data), bisect(data, 0.95) / len(data))
             ax.plot(data, np.linspace(0, 1, len(subopt_ratios)))
             ax.grid()
             # ax.hist(subopt_ratios, bins=20, weights=np.ones(len(subopt_ratios)) / len(subopt_ratios))
@@ -257,15 +282,77 @@ def search_and_store_unstable_examples():
                 full_name = "Whittle index"
             elif name == "max":
                 full_name = "max of two indices"
-            title=ax.set_title("Size-{}-{} \n Subopt of {}'s mean-field limit among {} non-UGAP examples\n ".format(sspa_size, distr_and_parameter, full_name, len(subopt_ratios)))
+            title=ax.set_title("Size-{}-{} \n Subopt of {}'s avg reward when N={} among {} non-UGAP examples\n ".format(sspa_size, distr_and_parameter, full_name, N, len(subopt_ratios)))
             fig.tight_layout()
             title.set_y(1.05)
             plt.savefig("figs2/nonugap-subopt-{}-size-{}-{}.png".format(name, sspa_size, distr_and_parameter))
             plt.show()
 
+    if do_simulation:
+        print("Simulation starts")
+        for policy_name in policy_names:
+            for i, setting in enumerate(all_data["examples"]):
+                if i >= simulate_up_to_ith:
+                    break
+                if (setting is None) or (setting.local_stab_eigval <= 1) or (setting.unichain_eigval >= 1):
+                    # only simulate the locally unstable and unichain examples
+                    continue
+                print("Simulating the {}-th setting, policy={}".format(i, policy_name))
+                # set up the example
+                setting = all_data["examples"][i]
+                act_frac = setting.suggest_act_frac
+                analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
+                y = analyzer.solve_lp(verbose=False)[1]
+                if policy_name == "lppriority":
+                    priority_list = analyzer.solve_LP_Priority(verbose=False)
+                elif policy_name == "whittle":
+                    priority_list = analyzer.solve_whittles_policy()
+                    if type(priority_list) is int:
+                        # if non-indexable or multichain, just set the reward of whittle index to be zero
+                        simu_data[policy_name][i] = [0 for i in range(simu_thousand_steps)]
+                        continue
+                else:
+                    raise NotImplementedError
+                policy = PriorityPolicy(setting.sspa_size, priority_list, N=N, act_frac=act_frac)
+                if len(simu_data[policy_name][i]) < simu_thousand_steps:
+                    # restore the final state
+                    if (simu_data[(policy_name+"-final-state")][i] is None) or (len(simu_data[policy_name][i]) == 0):
+                        last_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
+                    else:
+                        last_states = simu_data[(policy_name+"-final-state")][i]
+                    rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states=last_states)
+                    # restore the current iteration number
+                    cur_iter = len(simu_data[policy_name][i]) * 1000
+                    # main simulation loop
+                    total_reward_cur_thousand = 0
+                    for t in range(cur_iter, simu_thousand_steps*1000):
+                        actions = policy.get_actions(last_states)
+                        instant_reward = rb.step(actions)
+                        total_reward_cur_thousand += instant_reward
+                        last_states = rb.get_states()
+                        if (t+1)%1000 == 0:
+                            # store the average reward every 1000 steps
+                            simu_data[policy_name][i].append(total_reward_cur_thousand / 1000)
+                            total_reward_cur_thousand = 0
+                    # store the final state
+                    simu_data[(policy_name+"-final-state")][i] = last_states
+                print("setting id={}, eig P={}, eig Phi={}, upper bound={:0.4f}, lpp-limit-reward={:0.4f}, whittle-limit-reward={:0.4f}, ".format(
+                    i, setting.unichain_eigval, setting.local_stab_eigval, setting.avg_reward_upper_bound,
+                    setting.avg_reward_lpp_mf_limit, setting.avg_reward_whittle_mf_limit),
+                    end=""
+                )
+                print("policy name = {}, avg reward={:0.4f}, std={:0.4f}".format(
+                    policy_name,
+                    sum(simu_data[policy_name][i])/simu_thousand_steps,
+                    np.std(np.array(simu_data[policy_name][i])) / np.sqrt(simu_thousand_steps))
+                )
+
     print("saving data... do not quit...")
     with open(file_path, "wb") as f:
         pickle.dump(all_data, f)
+    with open(simu_file_path, "wb") as f:
+        pickle.dump(simu_data, f)
+    print("Finished!")
 
 
 if __name__ == "__main__":

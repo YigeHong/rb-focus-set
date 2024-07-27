@@ -290,9 +290,9 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, n
 
 
 def figure_from_multiple_files(note=None):
-    settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in [355]] #[137, 186, 189, 210, 260, 355]]   #["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)]   # ["RG-16-square-uniform-thresh=0.5-uniform-({})".format(i) for i in range(3)] + ["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)] + ["random-size-4-uniform-({})".format(i) for i in range(3)] + ["random-size-3-uniform-({})".format(i) for i in range(5)] + ["non-sa-big1", "new2-eight-states", "new-eight-states", "eight-states", "three-states", "non-sa", "eight-states-045"]
-    policies = ["id", "setexp", "lppriority", "whittle", "ftva"] #["id", "setexp", "setopt", "lppriority", "whittle"] #["id",  "setexp", "setopt", "setexp-priority", "ftva", "lppriority"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
-    linestyle_str = ["-",":","-.","--"]*10
+    settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in [137]] #[137, 186, 189, 210, 260, 355]]   #["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)]   # ["RG-16-square-uniform-thresh=0.5-uniform-({})".format(i) for i in range(3)] + ["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)] + ["random-size-4-uniform-({})".format(i) for i in range(3)] + ["random-size-3-uniform-({})".format(i) for i in range(5)] + ["non-sa-big1", "new2-eight-states", "new-eight-states", "eight-states", "three-states", "non-sa", "eight-states-045"]
+    policies = ["id", "setexp", "setexp-priority", "lppriority", "whittle", "ftva"] #["id", "setexp", "setopt", "lppriority", "whittle"] #["id",  "setexp", "setopt", "setexp-priority", "ftva", "lppriority"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
+    linestyle_str = ["-", "-.","--"]*10
     reward_array_dict = {}
     Ns = np.array(list(range(100,1100,100))) #np.array(list(range(1500, 5500, 500))) # list(range(1000, 20000, 1000))
     init_method = "random"
@@ -370,10 +370,10 @@ def figure_from_multiple_files(note=None):
 if __name__ == "__main__":
     np.set_printoptions(suppress=True)
     np.set_printoptions(linewidth=600)
-    # for setting_name in ["non-sa-big1"]: #["eight-states", "three-states", "non-sa", "new-eight-states", "new2-eight-states"]:
-    #     for policy_name in ["ftva", "lppriority", "setexp-priority", "setopt"]: # ["id", "setexp", "setopt", "ftva", "lppriority", "setexp-priority", "twoset-v1"]
+    # for setting_name in ["non-sa-big1", "non-sa"]: #["eight-states", "three-states", "non-sa", "new-eight-states", "new2-eight-states"]:
+    #     for policy_name in ["whittle"]: #["ftva", "lppriority", "setexp-priority", "setopt"]: # ["id", "setexp", "setopt", "ftva", "lppriority", "setexp-priority", "twoset-v1"]
     #         tic = time.time()
-    #         run_policies(setting_name, policy_name, "random", 10000) #, note="T2e4")
+    #         run_policies(setting_name, policy_name, "random", 20000, note="T2e4")
     #         # run_policies(setting_name, policy_name, "same", 10000)
     #         toc = time.time()
     #         print("when T=10000, total_time per policy =", toc-tic)
@@ -403,14 +403,14 @@ if __name__ == "__main__":
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
 
-    #random 10-state dirichlet examples
-    # for i in [355]: #[137, 186, 189, 210, 260]:
+    # ## random 10-state dirichlet examples
+    # for i in [137]: #[137, 186, 189, 210, 260]:
     #     setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
     #     setting_path = "setting_data/" + setting_name
     #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     for policy_name in ["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+    #     for policy_name in ["setexp-priority", "ftva"]: #["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
     #         run_policies(setting_name, policy_name, "random", 20000, setting_path, note="T2e4")
-    # #
+
     # ## random 16-state RG examples
     # for i in range(3):
     #     setting_name = "RG-16-square-uniform-thresh=0.5-uniform-({})".format(i)

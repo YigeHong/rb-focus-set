@@ -89,7 +89,7 @@ def count_locally_unstable(alpha):
 
 
 def search_and_store_unstable_examples():
-    ## parameters
+    ## output parameters
     num_examples = 10000
     num_reward_modif_examples = 0
     T_mf_simulation = 1000
@@ -97,9 +97,10 @@ def search_and_store_unstable_examples():
     save_subopt_examples = False
     make_scatter_plot = False
     unichain_threshold = 0.95
+    plot_sa_hitting_time = True
     ## simulation setting
-    do_simulation = True
-    simulate_up_to_ith = 6000 # only simulate the first simulate_up_to_ith examples that are non-UGAP
+    do_simulation = False
+    simulate_up_to_ith = 6500 # only simulate the first simulate_up_to_ith examples that are non-UGAP
     N = 500
     simu_thousand_steps = 20 # simulate 1000*simu_thousand_steps many time steps
     policy_names = ["lppriority", "whittle"]
@@ -144,6 +145,7 @@ def search_and_store_unstable_examples():
         all_data["beta"] = beta
         all_data["laziness"] = laziness
         all_data["examples"] = []
+        all_data["is_sa"] = []
     # load data of simulations
     simu_file_path = "random_example_data/simu-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
     if os.path.exists(simu_file_path):
@@ -205,12 +207,46 @@ def search_and_store_unstable_examples():
             if len(setting.reward_modifs) < num_reward_modif_examples:
                 print("analyzing the reward modification of an unstable example, index={}".format(i))
                 # subroutine of generating adversarial reward function (need to understand LP stability) and compute mean-field limit
-                for i in range(num_reward_modif_examples):
+                for j in range(num_reward_modif_examples):
                     direction = np.random.normal(0, 1, (sspa_size,))
                     direction = direction / np.linalg.norm(direction)
-                    if i > len(setting.reward_modifs):
+                    if j > len(setting.reward_modifs):
                         new_reward_modif = analyze_new_reward_modif(setting, direction)
                         setting.reward_modifs.append(new_reward_modif)
+
+    # calculate hitting time to determine if the example satisfies sa
+    max_recent_hitting_time = 0
+    for i, setting in enumerate(all_data["examples"]):
+        if i%100 == 0:
+            print("computing SA max hitting time, {} examples finished; largest hitting time recently = {}".format(i, max_recent_hitting_time))
+            max_recent_hitting_time = 0
+        if setting is None:
+            continue
+        if all_data["examples"][i].sa_max_hitting_time is not None:
+            max_recent_hitting_time = max(max_recent_hitting_time, setting.sa_max_hitting_time)
+            continue
+        d = setting.sspa_size
+        analyzer = SingleArmAnalyzer(d, setting.trans_tensor, setting.reward_tensor, setting.suggest_act_frac)
+        y = analyzer.solve_lp(verbose=False)[1]
+        # test the time and correctness of two ways of computing the joint transition matrix
+        # joint_trans_mat[m,j,k,l] represents the probability of going from joint state (m,j) to (k,l),
+        # where the first entry in the joint state belongs to the leader arm, the second entry belongs to the follower arm
+        # joint_trans_mat[m,j,k,l] = Ppibs[m,k] * sum_a P(j,a,l) pibs(m,a);
+        joint_trans_mat = np.zeros((d,d,d,d))
+        P_temp = np.tensordot(analyzer.Ppibs, analyzer.trans_tensor, axes=0)
+        for m in range(d):
+            joint_trans_mat[m,:,:,:] = np.tensordot(P_temp[m,:,:,:,:], analyzer.policy[m,:], axes=([2], [0]))
+        joint_trans_mat = joint_trans_mat.transpose((0,2,1,3))
+        # set transition prob in absorbing states to zero
+        for m in range(d):
+            joint_trans_mat[m,m,:,:] = 0
+        # the cost vector for computing hitting time
+        cost_vec = np.ones((d, d)) - np.eye(d)
+        h = np.linalg.solve(np.eye(d**2) - joint_trans_mat.reshape(d**2, d**2), cost_vec.reshape((-1,)))
+        all_data["examples"][i].sa_max_hitting_time = np.max(h)
+        max_recent_hitting_time = max(max_recent_hitting_time, setting.sa_max_hitting_time)
+        if all_data["examples"][i].sa_max_hitting_time > 1e4:
+            print("The {}-th example is non-SA, max hitting time = {}".format(i, all_data["examples"][i].sa_max_hitting_time))
 
     if make_scatter_plot:
         eig_vals_list = []
@@ -346,6 +382,23 @@ def search_and_store_unstable_examples():
                     sum(simu_data[policy_name][i])/simu_thousand_steps,
                     np.std(np.array(simu_data[policy_name][i])) / np.sqrt(simu_thousand_steps))
                 )
+
+    if plot_sa_hitting_time:
+        all_hitting_times = []
+        for i, setting in enumerate(all_data["examples"]):
+            if setting is not None:
+                all_hitting_times.append(np.log10(setting.sa_max_hitting_time))
+        all_hitting_times = sorted(all_hitting_times)
+        plt.plot(all_hitting_times, np.linspace(0, 1, len(all_hitting_times)))
+        plt.plot([0, 3.5], [1,1], linestyle="--")
+        plt.plot([0, 3.5], [0,0], linestyle="--")
+        # plt.hist(all_hitting_times)
+        plt.xlabel("log_10 of max hitting times of leader-follower system")
+        plt.ylabel("cdf")
+        plt.xlim([0, 3.5])
+        plt.grid()
+        plt.savefig("figs2/sa-hit-time-log10-size-{}-{}.png".format(sspa_size, distr_and_parameter))
+        plt.show()
 
     print("saving data... do not quit...")
     with open(file_path, "wb") as f:

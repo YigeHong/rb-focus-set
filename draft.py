@@ -2,7 +2,7 @@ import numpy as np
 import cvxpy as cp
 import scipy
 import pickle
-import time
+from time import time
 from matplotlib import pyplot as plt
 import matplotlib.animation as animation
 # import ffmpeg
@@ -31,13 +31,13 @@ def test_repeated_solver():
     cum_time = 0
     T = 10
     for i in range(T):
-        tic = time.time()
+        tic = time()
         states = np.random.choice(sspa, N, replace=True)
         setexp_policy.get_new_focus_set(states=states, last_focus_set=np.array([], dtype=int))
         setopt_policy.get_new_focus_set(states=states)
         print("difference between two policies Xt(Dt): ", np.linalg.norm(setexp_policy.z.value - setopt_policy.z.value, ord=2))
         print()
-        itime = time.time() - tic
+        itime = time() - tic
         print("{}-th solving time = ".format(i), itime)
         cum_time += itime
     print("total time = ", cum_time)
@@ -677,6 +677,65 @@ def understand_spatial_graph():
     plt.xlim([0,1])
     plt.show()
 
+def test_SA():
+    # probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
+    # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    # setting.reward_tensor[0,1] = 0.1/30
+    # setting = rb_settings.NonSAExample()
+    setting = rb_settings.Gast20Example2()
+    act_frac = setting.suggest_act_frac
+    d = setting.sspa_size
+
+    analyzer = SingleArmAnalyzer(d, setting.trans_tensor, setting.reward_tensor, act_frac)
+    y = analyzer.solve_lp()[1]
+    print("Ppibs=", analyzer.Ppibs)
+
+    # test the time and correctness of two ways of computing the joint transition matrix
+    # joint_trans_mat[i,j,k,l] represents the probability of going from joint state (i,j) to (k,l),
+    # where the first entry in the joint state belongs to the leader arm, the second entry belongs to the follower arm
+    # joint_trans_mat[i,j,k,l] = Ppibs[i,k] * sum_a P(j,a,l) pibs(i,a);
+    # method 1
+    tic = time()
+    joint_trans_mat1 = np.zeros((d,d,d,d))
+    for i in range(d):
+        for j in range(d):
+            for k in range(d):
+                for l in range(d):
+                    joint_trans_mat1[i,j,k,l] = analyzer.Ppibs[i,k] * np.sum(setting.trans_tensor[j,:,l]*analyzer.policy[i,:])
+    toc = time()
+    print("time of method 1", toc-tic)
+    # method 2: faster, using tensordot
+    tic = time()
+    joint_trans_mat = np.zeros((d,d,d,d))
+    P_temp = np.tensordot(analyzer.Ppibs, analyzer.trans_tensor, axes=0)
+    for i in range(d):
+        joint_trans_mat[i,:,:,:] = np.tensordot(P_temp[i,:,:,:,:], analyzer.policy[i,:], axes=([2], [0]))
+    joint_trans_mat = joint_trans_mat.transpose((0,2,1,3))
+    toc = time()
+    print("time of method 2", toc-tic)
+    # the results should agree
+    print("close?", np.allclose(joint_trans_mat, joint_trans_mat1))
+
+    for i in range(d):
+        joint_trans_mat[i,i,:,:] = 0
+    cost_vec = np.ones((d, d)) - np.eye(d)
+
+    tic = time()
+    joint_trans_mat_reshape = joint_trans_mat.reshape(d**2, d**2)
+    print(joint_trans_mat_reshape)
+    print(np.linalg.eigvals(joint_trans_mat_reshape))
+    cost_vec_reshape = cost_vec.reshape((-1,))
+    # h = cost_vec_reshape
+    # for i in range(20):
+    #     print(h)
+    #     h = cost_vec_reshape + np.matmul(joint_trans_mat_reshape, h)
+
+    h = np.linalg.solve(np.eye(d**2) - joint_trans_mat.reshape(d**2, d**2), cost_vec.reshape((-1,)))
+    h = h.reshape((d, d))
+    print("hitting time result=", h)
+    toc = time()
+    print("time of matrix inversion", toc-tic)
+
 
 
 # np.random.seed(114514)
@@ -686,7 +745,15 @@ np.set_printoptions(linewidth=800)
 # test_run_policies()
 # edit_data()
 # test_ID_focus_set()
-visualize_focus_sets_from_file()
+# visualize_focus_sets_from_file()
 # animate_ID_policy()
 # understand_whittle_index()
 # understand_spatial_graph()
+test_SA()
+
+
+# A = np.eye(3)
+# B = np.ones((3,3))
+# C = np.tensordot(A, B, axes=0)
+# print(C[1,1,:,:])
+# print(C)

@@ -131,6 +131,7 @@ class RandomExample(object):
         self.avg_reward_lpp_mf_limit = None
         self.avg_reward_whittle_mf_limit = None
         self.reward_modifs = []
+        self.sa_max_hitting_time = None
 
         if verbose:
             print("P0 = ", P0)
@@ -272,6 +273,7 @@ class ChungLuRandomExample(object):
         self.avg_reward_lpp_mf_limit = None
         self.avg_reward_whittle_mf_limit = None
         self.reward_modifs = []
+        sa_max_hitting_time = None
 
 
 class ExampleFromFile(object):

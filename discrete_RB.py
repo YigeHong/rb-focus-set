@@ -203,7 +203,7 @@ class SingleArmAnalyzer(object):
         objective = self.get_objective()
         constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
         problem = cp.Problem(objective, constrs)
-        self.opt_value = problem.solve(verbose=True)
+        self.opt_value = problem.solve(verbose=False)
         if verbose:
             print("--------LP relaxation solved, solution as below-------")
             print("Optimal value ", self.opt_value)

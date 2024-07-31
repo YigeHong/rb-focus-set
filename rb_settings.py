@@ -120,8 +120,8 @@ class RandomExample(object):
             P1 = (1-laziness) * np.eye(self.sspa_size) + laziness * P1
         self.trans_tensor = np.stack([P0, P1], axis=1) # dimensions (state, action, next_state)
         self.reward_tensor = np.stack([R0, R1], axis=1) # dimensions (state, action)
-        # make sure alpha is not too close to 0 or 1
-        self.suggest_act_frac = np.random.uniform(0.1,0.9)
+        # make sure alpha is not too close to 0 or 1; round to 0.01
+        self.suggest_act_frac = int(100*np.random.uniform(0.1,0.9))/100
 
         self.unichain_eigval = None
         self.local_stab_eigval = None
@@ -189,7 +189,7 @@ class GeometricRandomExample(object):
             self.reward_tensor = np.random.dirichlet(alphas, 2).T
         else:
             raise NotImplementedError
-        self.suggest_act_frac = np.random.uniform(0.1,0.9)
+        self.suggest_act_frac = int(100*np.random.uniform(0.1,0.9))/100
 
     def save(self, f_path, other_params=None):
         data_dict = {"sspa_size": self.sspa_size,
@@ -263,7 +263,7 @@ class ChungLuRandomExample(object):
                 self.trans_tensor[i, a, neighbor_inds] = probs_on_neighbors
 
         self.reward_tensor = np.random.dirichlet([1]*sspa_size, 2).T
-        self.suggest_act_frac = np.random.uniform(0.1, 0.9)
+        self.suggest_act_frac = int(100*np.random.uniform(0.1,0.9))/100
 
         self.unichain_eigval = None
         self.local_stab_eigval = None
@@ -441,6 +441,8 @@ class NonSAExample(object):
 class BigNonSAExample(object):
     def __init__(self, version="v1"):
         if version == "v1":
+            # no longer use this version
+            raise NotImplementedError
             self.sspa_size = 11
             action_script = [1,0,1,0,1, 1,1,1,0,0,0]
             self.trans_tensor = np.zeros((11, 2, 11))
@@ -463,6 +465,29 @@ class BigNonSAExample(object):
                 self.reward_tensor[i, action_script[i]] = 1
 
             self.suggest_act_frac = 3/7
+        if version == "v2":
+            self.sspa_size = 12
+            action_script = [1,0,1,0,1, 1,1,1,1,0,0,0]
+            self.trans_tensor = np.zeros((12, 2, 12))
+            for i in range(12):
+                if i not in [9,11]:
+                    self.trans_tensor[i, action_script[i], i+1] = 1
+                    self.trans_tensor[i, 1-action_script[i], 0] = 1
+                else:
+                    continue
+
+            self.trans_tensor[9, action_script[9], 10] = 1/2
+            self.trans_tensor[9, action_script[9], 5] = 1/2
+            self.trans_tensor[9, 1-action_script[9], 0] = 1
+
+            self.trans_tensor[11, action_script[11], 9] = 1
+            self.trans_tensor[11, 1-action_script[11], 0] = 1
+
+            self.reward_tensor = np.zeros((12, 2))
+            for i in [5,6,7,8,9,10,11]:
+                self.reward_tensor[i, action_script[i]] = 1
+
+            self.suggest_act_frac = 1/2
         else:
             raise NotImplementedError
 

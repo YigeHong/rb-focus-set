@@ -42,6 +42,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, n
         raise NotImplementedError
     act_frac = setting.suggest_act_frac
     Ns = list(range(100, 1100, 100))  #list(range(1500, 5500, 500)) # list(range(1000, 20000, 1000))
+    for N in Ns:
+        assert (N*act_frac).is_integer()
     num_reps = 1
     print()
     rb_settings.print_bandit(setting)

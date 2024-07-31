@@ -97,10 +97,10 @@ def search_and_store_unstable_examples():
     save_subopt_examples = False
     make_scatter_plot = False
     unichain_threshold = 0.95
-    plot_sa_hitting_time = True
+    plot_sa_hitting_time = False
     ## simulation setting
-    do_simulation = False
-    simulate_up_to_ith = 6500 # only simulate the first simulate_up_to_ith examples that are non-UGAP
+    do_simulation = True
+    simulate_up_to_ith = 10000 # only simulate the first simulate_up_to_ith examples that are non-UGAP
     N = 500
     simu_thousand_steps = 20 # simulate 1000*simu_thousand_steps many time steps
     policy_names = ["lppriority", "whittle"]
@@ -397,6 +397,7 @@ def search_and_store_unstable_examples():
         plt.ylabel("cdf")
         plt.xlim([0, 3.5])
         plt.grid()
+        plt.title("CDF of log_10(Max hitting time) in {} {} examples".format(num_examples, distr_and_parameter))
         plt.savefig("figs2/sa-hit-time-log10-size-{}-{}.png".format(sspa_size, distr_and_parameter))
         plt.show()
 

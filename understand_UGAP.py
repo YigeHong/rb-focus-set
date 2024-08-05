@@ -18,8 +18,6 @@ def compute_P_and_Phi_eigvals(setting):
     if len(ind_neu) > 1:
         return None
 
-    # Ppibs_centered = analyzer.Ppibs - np.outer(np.ones((analyzer.sspa_size,)), analyzer.state_probs)
-    # Ppibs_second_eig = np.max(np.abs(Ppibs_centered))
     Ppibs_eigs = np.sort(np.abs(np.linalg.eigvals(analyzer.Ppibs)))
     assert np.allclose(Ppibs_eigs[-1], 1)
     Ppibs_second_eig = Ppibs_eigs[-2]

@@ -203,12 +203,6 @@ def search_and_store_unstable_examples():
                 setting.local_stab_eigval = result[2]
                 print(setting.avg_reward_upper_bound, setting.lp_priority, setting.whittle_priority, setting.unichain_eigval, setting.local_stab_eigval)
                 all_data["examples"].append(setting)
-    for i, setting in enumerate(all_data["examples"]):
-        if setting is None:
-            continue
-        result = compute_P_and_Phi_eigvals(setting)
-        all_data["examples"][i].unichain_eigval = result[1]
-        print(setting.avg_reward_upper_bound, setting.lp_priority, setting.whittle_priority, setting.unichain_eigval, setting.local_stab_eigval)
     # For the locally unstable examples, run the mean-field limit reward, and generate reward modification
     for i, setting in enumerate(all_data["examples"]):
         if setting is None:

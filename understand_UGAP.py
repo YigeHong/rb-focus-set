@@ -5,7 +5,7 @@ from discrete_RB import *
 from matplotlib import pyplot as plt
 import os
 from bisect import bisect
-
+import time
 
 
 def compute_P_and_Phi_eigvals(setting):
@@ -18,8 +18,12 @@ def compute_P_and_Phi_eigvals(setting):
     if len(ind_neu) > 1:
         return None
 
-    Ppibs_centered = analyzer.Ppibs - np.outer(np.ones((analyzer.sspa_size,)), analyzer.state_probs)
-    Ppibs_second_eig = np.max(np.abs(Ppibs_centered))
+    # Ppibs_centered = analyzer.Ppibs - np.outer(np.ones((analyzer.sspa_size,)), analyzer.state_probs)
+    # Ppibs_second_eig = np.max(np.abs(Ppibs_centered))
+    Ppibs_eigs = np.sort(np.abs(np.linalg.eigvals(analyzer.Ppibs)))
+    assert np.allclose(Ppibs_eigs[-1], 1)
+    Ppibs_second_eig = Ppibs_eigs[-2]
+
 
     Phi = analyzer.compute_Phi(verbose=False)
     Phi_spec_rad = np.max(np.abs(np.linalg.eigvals(Phi)))
@@ -95,20 +99,25 @@ def search_and_store_unstable_examples():
     T_mf_simulation = 1000
     plot_subopt_cdf = False
     save_subopt_examples = False
-    make_scatter_plot = False
+    make_scatter_plot = True
     unichain_threshold = 0.95
     plot_sa_hitting_time = False
-    ## simulation setting
-    do_simulation = True
-    simulate_up_to_ith = 10000 # only simulate the first simulate_up_to_ith examples that are non-UGAP
+    plot_sa_hitting_time_vs_opt = True
+    ## simulation settings
     N = 500
     simu_thousand_steps = 20 # simulate 1000*simu_thousand_steps many time steps
     policy_names = ["lppriority", "whittle"]
+    # simulation button for priority policies
+    do_simulation = False
+    simulate_up_to_ith = 10000 # only simulate the first simulate_up_to_ith examples that are non-UGAP
+    # simulation button for FTVA
+    do_ftva_simulation = False
+    simulate_ftva_up_to_ith = 500
     ## hyperparameters
     sspa_size = 10
     distr = "dirichlet" #"uniform", "dirichlet", "CL
     laziness = None
-    alpha = 0.05
+    alpha = 0.1
     beta = 4 # > 3
     distr_and_parameter = distr
     if distr == "uniform":
@@ -157,8 +166,17 @@ def search_and_store_unstable_examples():
         # simu_data[policy][i] stores the average value of the simulation from i*1000 to ((i+1)*1000-1) time steps
         # simu_data[(policy+"-final-state")] stores the final state of the last simulation, i.e., the state at 1000*len(simu_data["LP-index"][i]) time step
         for policy_name in policy_names:
-            simu_data[policy_name] =  [[] for i in range(num_examples)]
+            simu_data[policy_name] = [[] for i in range(num_examples)]
             simu_data[(policy_name+"-final-state")] =  [None for i in range(num_examples)]
+    simu_ftva_file_path = "random_example_data/simu-ftva-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
+    if os.path.exists(simu_ftva_file_path):
+        with open(simu_ftva_file_path, "rb") as f:
+            simu_ftva_data = pickle.load(f)
+    else:
+        simu_ftva_data = {}
+        simu_ftva_data["N"] = N
+        simu_ftva_data["FTVA"] = [[] for i in range(num_examples)]
+        simu_ftva_data["FTVA-final-state"] = [None for i in range(num_examples)]
 
     # mode: search for new examples? add reward modification to existing example?
     num_exist_examples = len(all_data["examples"])
@@ -187,6 +205,12 @@ def search_and_store_unstable_examples():
                 setting.local_stab_eigval = result[2]
                 print(setting.avg_reward_upper_bound, setting.lp_priority, setting.whittle_priority, setting.unichain_eigval, setting.local_stab_eigval)
                 all_data["examples"].append(setting)
+    for i, setting in enumerate(all_data["examples"]):
+        if setting is None:
+            continue
+        result = compute_P_and_Phi_eigvals(setting)
+        all_data["examples"][i].unichain_eigval = result[1]
+        print(setting.avg_reward_upper_bound, setting.lp_priority, setting.whittle_priority, setting.unichain_eigval, setting.local_stab_eigval)
     # For the locally unstable examples, run the mean-field limit reward, and generate reward modification
     for i, setting in enumerate(all_data["examples"]):
         if setting is None:
@@ -383,6 +407,60 @@ def search_and_store_unstable_examples():
                     np.std(np.array(simu_data[policy_name][i])) / np.sqrt(simu_thousand_steps))
                 )
 
+    if do_ftva_simulation:
+        print("Simulation of FTVA starts")
+        for i, setting in enumerate(all_data["examples"]):
+            if i >= simulate_ftva_up_to_ith:
+                break
+            if setting is None:
+                continue
+            # simulate for all examples
+            print("Simulating the {}-th setting, policy=FTVA".format(i))
+            tic = time.time()
+            # set up the example
+            setting = all_data["examples"][i]
+            act_frac = setting.suggest_act_frac
+            analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
+            y = analyzer.solve_lp(verbose=False)[1]
+            if len(simu_ftva_data["FTVA"][i]) < simu_thousand_steps:
+                # restore the final state
+                if (simu_ftva_data["FTVA-final-state"][i] is None) or (len(simu_ftva_data["FTVA"][i]) == 0):
+                    last_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
+                    policy = FTVAPolicy(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, y=y, N=N,
+                                act_frac=act_frac, init_virtual=None)
+                else:
+                    last_states, last_virtual_states = simu_ftva_data["FTVA-final-state"][i]
+                    policy = FTVAPolicy(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, y=y, N=N,
+                                act_frac=act_frac, init_virtual=last_virtual_states)
+                rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states=last_states)
+                # restore the current iteration number
+                cur_iter = len(simu_ftva_data["FTVA"][i]) * 1000
+                # main simulation loop
+                total_reward_cur_thousand = 0
+                for t in range(cur_iter, simu_thousand_steps*1000):
+                    actions, virtual_actions = policy.get_actions(last_states)
+                    instant_reward = rb.step(actions)
+                    total_reward_cur_thousand += instant_reward
+                    new_states = rb.get_states()
+                    policy.virtual_step(last_states, new_states, actions, virtual_actions)
+                    last_states = new_states.copy()
+                    if (t+1)%1000 == 0:
+                        # store the average reward every 1000 steps
+                        simu_ftva_data["FTVA"][i].append(total_reward_cur_thousand / 1000)
+                        total_reward_cur_thousand = 0
+                # store the final state
+                simu_ftva_data["FTVA-final-state"][i] = (last_states, policy.virtual_states.copy())
+            print("setting id={}, eig P={:0.4f}, SA hitting={:0.4f}, upper bound={:0.4f}, ".format(
+                i, setting.unichain_eigval, setting.sa_max_hitting_time, setting.avg_reward_upper_bound),
+                end=""
+            )
+            print("ftva avg reward={:0.4f}, std={:0.4f}, opt ratio={:0.2f}%; time={}".format(
+                sum(simu_ftva_data["FTVA"][i])/simu_thousand_steps,
+                np.std(np.array(simu_ftva_data["FTVA"][i])) / np.sqrt(simu_thousand_steps),
+                100*sum(simu_ftva_data["FTVA"][i])/simu_thousand_steps/setting.avg_reward_upper_bound,
+                time.time()-tic)
+            )
+
     if plot_sa_hitting_time:
         all_hitting_times = []
         for i, setting in enumerate(all_data["examples"]):
@@ -401,11 +479,28 @@ def search_and_store_unstable_examples():
         plt.savefig("figs2/sa-hit-time-log10-size-{}-{}.png".format(sspa_size, distr_and_parameter))
         plt.show()
 
+    if plot_sa_hitting_time_vs_opt:
+        plot_hitting_times = []
+        plot_opt_gap_ratio = []
+        for i, setting in enumerate(all_data["examples"]):
+            if (setting is None) or (i >= simulate_ftva_up_to_ith):
+                continue
+            plot_hitting_times.append(setting.sa_max_hitting_time)
+            plot_opt_gap_ratio.append(1 - sum(simu_ftva_data["FTVA"][i]) / (simu_thousand_steps*setting.avg_reward_upper_bound))
+        plt.scatter(plot_hitting_times, plot_opt_gap_ratio, s=1)
+        plt.xlabel("max hitting times of leader-follower system")
+        plt.ylabel("opt gap ratio of FTVA")
+        plt.title("max hitting time v.s. FTVA opt gap ratio in {} {} examples".format(num_examples, distr_and_parameter))
+        plt.savefig("figs2/sa-hit-time-ftva-reward-size-{}-scatter-{}.png".format(sspa_size, distr_and_parameter))
+        plt.show()
+
     print("saving data... do not quit...")
     with open(file_path, "wb") as f:
         pickle.dump(all_data, f)
     with open(simu_file_path, "wb") as f:
         pickle.dump(simu_data, f)
+    with open(simu_ftva_file_path, "wb") as f:
+        pickle.dump(simu_ftva_data, f)
     print("Finished!")
 
 

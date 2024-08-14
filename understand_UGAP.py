@@ -95,12 +95,12 @@ def search_and_store_unstable_examples():
     num_examples = 10000
     num_reward_modif_examples = 0
     T_mf_simulation = 1000
-    plot_subopt_cdf = False
+    plot_subopt_cdf = True
     save_subopt_examples = False
-    make_scatter_plot = True
+    make_scatter_plot = False
     unichain_threshold = 0.95
     plot_sa_hitting_time = False
-    plot_sa_hitting_time_vs_opt = True
+    plot_sa_hitting_time_vs_opt = False
     ## simulation settings
     N = 500
     simu_thousand_steps = 20 # simulate 1000*simu_thousand_steps many time steps
@@ -115,7 +115,7 @@ def search_and_store_unstable_examples():
     sspa_size = 10
     distr = "dirichlet" #"uniform", "dirichlet", "CL
     laziness = None
-    alpha = 0.1
+    alpha = 0.05
     beta = 4 # > 3
     distr_and_parameter = distr
     if distr == "uniform":
@@ -281,12 +281,15 @@ def search_and_store_unstable_examples():
         plt.scatter(eig_vals_list[:,0], eig_vals_list[:,1], c=colors, s=1)
         plt.plot([0,1], [1,1], linestyle="--", color="r")
         plt.plot([1,1], [0,1], linestyle="--", color="r")
-        plt.xlabel("Second largest modulus of eigenvalues of P_pibs ")
-        plt.ylabel("Spectral radius of Phi")
+        plt.xlabel("Second largest modulus of eigenvalues of P_pibs ", fontsize=14)
+        plt.ylabel("Spectral radius of Phi", fontsize=14)
+        plt.xticks(fontsize=14)
+        plt.yticks(fontsize=14)
         plt.xlim([0, 1.1])
         plt.ylim([0, 2])
-        plt.title("{}, unichain thresh {}, unstable / unichain = {} / {}".format(distr_and_parameter, unichain_threshold, unstable_unichain_count, unichain_count))
-        plt.savefig("figs2/eigen-scatter-{}-size-{}.png".format(distr_and_parameter, sspa_size))
+        # plt.title("{}, unichain thresh {}, unstable / unichain = {} / {}".format(distr_and_parameter, unichain_threshold, unstable_unichain_count, unichain_count))
+        plt.tight_layout()
+        plt.savefig("figs2/eigen-scatter-{}-size-{}.pdf".format(distr_and_parameter, sspa_size))
         plt.show()
 
     subopt_ratios = []
@@ -334,10 +337,14 @@ def search_and_store_unstable_examples():
                 full_name = "Whittle index"
             elif name == "max":
                 full_name = "max of two indices"
-            title=ax.set_title("Size-{}-{} \n Subopt of {}'s avg reward when N={} among {} non-UGAP examples\n ".format(sspa_size, distr_and_parameter, full_name, N, len(subopt_ratios)))
+            # title=ax.set_title("Size-{}-{} \n Subopt of {}'s avg reward when N={} among {} non-UGAP examples\n ".format(sspa_size, distr_and_parameter, full_name, N, len(subopt_ratios)))
+            # title.set_y(1.05)
+            plt.ylabel("CDF", fontsize=14)
+            plt.xlabel("Optimality ratio", fontsize=14)
+            plt.xticks(fontsize=14)
+            plt.yticks(fontsize=14)
             fig.tight_layout()
-            title.set_y(1.05)
-            plt.savefig("figs2/nonugap-subopt-{}-size-{}-{}.png".format(name, sspa_size, distr_and_parameter))
+            plt.savefig("figs2/nonugap-subopt-{}-size-{}-{}.pdf".format(name, sspa_size, distr_and_parameter))
             plt.show()
 
     if do_simulation:

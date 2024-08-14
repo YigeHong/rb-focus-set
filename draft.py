@@ -631,16 +631,16 @@ def animate_ID_policy():
     # plt.show()
 
 def understand_whittle_index():
-    probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
-    setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    # probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
+    # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
     # setting.suggest_act_frac = 0.45
     # setting = rb_settings.Gast20Example2()
-    # setting = rb_settings.NonSAExample()
+    setting = rb_settings.NonSAExample()
     # setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(0)")
     # setting = rb_settings.NonIndexableExample()
     act_frac = setting.suggest_act_frac
     # rb_settings.print_bandit(setting)
-    setting.reward_tensor[0,1] = 0.1/30
+    # setting.reward_tensor[0,1] = 0.1/30
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     y = analyzer.solve_lp()[1]
@@ -651,7 +651,7 @@ def understand_whittle_index():
     print("LP Priority=", priority)
     whittle_priority = analyzer.solve_whittles_policy()
     print("Whittle priority=", whittle_priority)
-    analyzer.understand_lagrange_relaxation(-0.1, 0.1, 0.005)
+    analyzer.understand_lagrange_relaxation(-3, 3, 0.05)
 
 
 
@@ -682,7 +682,8 @@ def test_SA():
     # setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
     # setting.reward_tensor[0,1] = 0.1/30
     # setting = rb_settings.NonSAExample()
-    setting = rb_settings.Gast20Example2()
+    setting = rb_settings.BigNonSAExample()
+    # setting = rb_settings.Gast20Example2()
     act_frac = setting.suggest_act_frac
     d = setting.sspa_size
 
@@ -715,6 +716,8 @@ def test_SA():
     print("time of method 2", toc-tic)
     # the results should agree
     print("close?", np.allclose(joint_trans_mat, joint_trans_mat1))
+    # joint_trans_mat = np.tensordot(analyzer.Ppibs, analyzer.Ppibs, axes=0)
+    # joint_trans_mat = joint_trans_mat.transpose((0,2,1,3))
 
     for i in range(d):
         joint_trans_mat[i,i,:,:] = 0
@@ -749,11 +752,6 @@ np.set_printoptions(linewidth=800)
 # animate_ID_policy()
 # understand_whittle_index()
 # understand_spatial_graph()
-test_SA()
+# test_SA()
 
 
-# A = np.eye(3)
-# B = np.ones((3,3))
-# C = np.tensordot(A, B, axes=0)
-# print(C[1,1,:,:])
-# print(C)

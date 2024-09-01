@@ -488,6 +488,46 @@ class BigNonSAExample(object):
                 self.reward_tensor[i, action_script[i]] = 1
 
             self.suggest_act_frac = 1/2
+        elif version == "v3":
+            self.sspa_size = 10
+            action_script = [1,1,1,1,1,1,1,1,0,1]
+            self.trans_tensor = np.zeros((10, 2, 10))
+            for i in range(8):
+                self.trans_tensor[i, action_script[i], i+1] = 1
+                self.trans_tensor[i, 1-action_script[i], 0] = 1
+
+            self.trans_tensor[8, action_script[8], 9] = 1/2
+            self.trans_tensor[8, action_script[8], 6] = 1/2
+            self.trans_tensor[8, 1-action_script[8], 0] = 1
+
+            self.trans_tensor[9, action_script[9], 8] = 1
+            self.trans_tensor[9, 1-action_script[9], 0] = 1
+
+            self.reward_tensor = np.zeros((10, 2))
+            for i in [6,7,8,9]:
+                self.reward_tensor[i, action_script[i]] = 1
+
+            self.suggest_act_frac = 0.6
+        elif version == "v4":
+            self.sspa_size = 10
+            action_script = [1,1,1,0,0,0,1,1,0,1]
+            self.trans_tensor = np.zeros((10, 2, 10))
+            for i in range(8):
+                self.trans_tensor[i, action_script[i], i+1] = 1
+                self.trans_tensor[i, 1-action_script[i], 0] = 1
+
+            self.trans_tensor[8, action_script[8], 9] = 1/2
+            self.trans_tensor[8, action_script[8], 6] = 1/2
+            self.trans_tensor[8, 1-action_script[8], 0] = 1
+
+            self.trans_tensor[9, action_script[9], 8] = 1
+            self.trans_tensor[9, 1-action_script[9], 0] = 1
+
+            self.reward_tensor = np.zeros((10, 2))
+            for i in [6,7,8,9]:
+                self.reward_tensor[i, action_script[i]] = 1
+
+            self.suggest_act_frac = 0.6
         else:
             raise NotImplementedError
 
@@ -513,14 +553,37 @@ class NonIndexableExample(object):
         self.suggest_act_frac = 0.5 # it can be anything.
 
 
-def print_bandit(setting):
+def print_bandit(setting, latex_format=False):
     #print("generated using {} distribution".format(self.distr))
     print("------------Information of the bandits---------------")
     print("state space size = ", setting.sspa_size)
-    print("P0 = \n", setting.trans_tensor[:,0,:])
-    print("P1 = \n", setting.trans_tensor[:,1,:])
-    print("R0 = \n", setting.reward_tensor[:,0])
-    print("R1 = \n", setting.reward_tensor[:,1])
+    if not latex_format:
+        print("P0 = \n", setting.trans_tensor[:,0,:])
+        print("P1 = \n", setting.trans_tensor[:,1,:])
+        print("R0 = \n", setting.reward_tensor[:,0])
+        print("R1 = \n", setting.reward_tensor[:,1])
+    else:
+        tensors = {"P0":setting.trans_tensor[:,0,:], "P1":setting.trans_tensor[:,1,:],
+                   "R0":setting.reward_tensor[:,0], "R1":setting.reward_tensor[:,1]}
+        for name, data in tensors.items():
+            print(name + " = ")
+            if len(data.shape) == 1:
+                for i in range(data.shape[0]):
+                    print("{:.5}".format(data[i]), end=" ")
+                    if i < data.shape[0]-1:
+                        print("&", end=" ")
+            elif len(data.shape) == 2:
+                for i in range(data.shape[0]):
+                    for j in range(data.shape[1]):
+                        print("{:.5}".format(data[i,j]), end=" ")
+                        if j < data.shape[0]-1:
+                            print("&", end=" ")
+                    if i < data.shape[1] -1:
+                        print(r"\\", end="\n")
+            else:
+                raise NotImplementedError
+            print()
+
     if hasattr(setting, "suggest_act_frac"):
         print("suggest act frac = ", setting.suggest_act_frac)
     print("---------------------------")
@@ -538,14 +601,7 @@ def save_bandit(setting, f_path, other_params):
     with open(f_path, 'wb') as f:
         pickle.dump(data_dict, f)
 
-
-if __name__ == '__main__':
-    # generate and save some random settings
-    np.random.seed(114514)
-    np.set_printoptions(precision=3)
-    np.set_printoptions(linewidth=600)
-    np.set_printoptions(suppress=True)
-
+def generate_Geo_random():
     # sspa_size = 10
     # distr = "dirichlet"
     # alpha = 0.05
@@ -597,3 +653,12 @@ if __name__ == '__main__':
         print("U=\n", U)
         if U is not np.infty:
             print("spectral norm of U=", np.max(np.abs(np.linalg.eigvals(U))))
+
+
+
+if __name__ == '__main__':
+    # generate and save some random settings
+    np.random.seed(114514)
+    np.set_printoptions(precision=3)
+    np.set_printoptions(linewidth=600)
+    np.set_printoptions(suppress=True)

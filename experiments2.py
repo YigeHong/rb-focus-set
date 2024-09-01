@@ -38,6 +38,10 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, n
         setting = rb_settings.BigNonSAExample("v1")
     elif setting_name == "non-sa-big2":
         setting = rb_settings.BigNonSAExample("v2")
+    elif setting_name == "non-sa-big3":
+        setting = rb_settings.BigNonSAExample("v3")
+    elif setting_name == "non-sa-big4":
+        setting = rb_settings.BigNonSAExample("v4")
     elif setting_path is not None:
         setting = rb_settings.ExampleFromFile(setting_path)
     else:
@@ -293,56 +297,57 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, n
             pickle.dump(setting_and_data, f)
 
 
-def figure_from_multiple_files(note=None):
-    settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in [137, 355]] #["new2-eight-states", "three-states", "non-sa", "non-sa-big2"] #+ #[137, 186, 189, 210, 260, 355]]   #["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)]   # ["RG-16-square-uniform-thresh=0.5-uniform-({})".format(i) for i in range(3)] + ["random-size-10-dirichlet-0.05-({})".format(i) for i in range(7)] + ["random-size-4-uniform-({})".format(i) for i in range(3)] + ["random-size-3-uniform-({})".format(i) for i in range(5)] + ["non-sa-big1", "new2-eight-states", "new-eight-states", "eight-states", "three-states", "non-sa", "eight-states-045"]
-    policies = ["id", "setexp", "setexp-priority", "lppriority", "whittle", "ftva"] #["id", "setexp", "setopt", "lppriority", "whittle"] #["id",  "setexp", "setopt", "setexp-priority", "ftva", "lppriority"]  # ["id", "ftva", "lppriority", "setexp", "setopt", "setexp-id", "setopt-id", "setexp-priority", "setopt-priority", "setopt-tight"]
-    linestyle_str = ["-", "-.","--"]*10
-    policy2label = {"id":"ID", "setexp":"Set expansion", "lppriority":"LP index", "whittle":"Whittle index", "ftva":"FTVA", "setexp-priority":"Set expansion (with LP index)"}
-    reward_array_dict = {}
+def figure_from_multiple_files():
+    settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"] #， "non-sa-big4"]     #
+    policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id"]
+    linestyle_str = ["-.", "-", "--", "-.", "--", "-"]
+    policy_markers = ["v",".","^","s","p","*"]
+    policy_colors = ["m","c","y","r","g","b"]
+    policy2label = {"id":"ID policy", "setexp":"Set expansion", "lppriority":"LP index policy",
+                    "whittle":"Whittle index policy", "ftva":"FTVA", "setexp-priority":"Set expansion (with LP index)"}
+    setting2legend_position = {"random-size-10-dirichlet-0.05-(582)": (1,0.1), "random-size-10-dirichlet-0.05-(355)":(1,0.1),
+                               "new2-eight-states":"center right", "three-states":(1,0.1), "non-sa":"lower right", "non-sa-big2":"center right"}
+    setting2yrange = {"random-size-10-dirichlet-0.05-(582)": None, "random-size-10-dirichlet-0.05-(355)":None,
+                      "new2-eight-states":None, "three-states":None, "non-sa":(0.7,1.025), "non-sa-big2":None}
+    batch_means_dict = {}
+    num_batches = 20
     Ns = np.array(list(range(100,1100,100))) #np.array(list(range(1500, 5500, 500))) # list(range(1000, 20000, 1000))
     init_method = "random"
 
     for setting_name in settings:
         for policy_name in policies:
-            if (policy_name in ["id", "setexp", "setopt", "setexp-id", "setopt-id", "setopt-tight", "setexp-priority"]) or \
-                    (setting_name not in ["eight-states", "three-states"]):
-                file_prefix = "{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method)
-                if note is not None:
-                    file_prefix += "-{}".format(note)
-                file_names = [file_name for file_name in os.listdir("fig_data") if file_name.startswith(file_prefix)]
-                print("{}:{}".format(file_prefix, file_names))
-                # if note is not None:
-                #     file_name_alter = "fig_data/{}-{}-N{}-{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method, note)
-                #     if os.path.exists(file_name_alter):
-                #         file_name = file_name_alter
-                if len(file_names) == 0:
-                    if policy_name == "whittle":
-                        continue
-                    else:
-                        raise FileNotFoundError("no file with prefix {}".format(file_prefix))
-                reward_arrays_with_this_prefix = []
-                for file_name in file_names:
-                    with open("fig_data/"+file_name, 'rb') as f:
-                        setting_and_data = pickle.load(f)
-                        reward_arrays_with_this_prefix.extend(setting_and_data["reward_array"])
-                reward_array_dict[(setting_name, policy_name)] = np.array(reward_arrays_with_this_prefix)
-                print(setting_name, policy_name, reward_array_dict[(setting_name, policy_name)])
-
-    temp_name_suffix = "bad" if init_method == "same" else "random"
-    with open("fig_data/Formal-{}-N{}-{}-{}".format("Figure2Example", 100, 1100, temp_name_suffix), 'rb') as f:
-        setting_and_data = pickle.load(f)
-        reward_array_dict[("eight-states", "ftva")] = setting_and_data["sp_avg_rewards"]
-    with open("fig_data/Formal-{}-N{}-{}-{}".format("Figure2Example", 100, 1100, temp_name_suffix), 'rb') as f:
-        setting_and_data = pickle.load(f)
-        reward_array_dict[("eight-states", "lppriority")] = setting_and_data["lp_avg_rewards"]
-
-    ### warning: initialization method of this simulation is different; but I guess that do not affect the result
-    with open("fig_data/Formal-{}-N{}-{}-{}".format("Figure1Example", 100, 1100, "default"), 'rb') as f:
-        setting_and_data = pickle.load(f)
-        reward_array_dict[("three-states", "ftva")] = setting_and_data["sp_avg_rewards"]
-    with open("fig_data/Formal-{}-N{}-{}-{}".format("Figure1Example", 100, 1100, "default"), 'rb') as f:
-        setting_and_data = pickle.load(f)
-        reward_array_dict[("three-states", "lppriority")] = setting_and_data["wip_avg_rewards"]
+            file_prefix = "{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method)
+            if setting_name in ["non-sa", "non-sa-big1", "non-sa-big2", "non-sa-big3", "non-sa-big4"] and (policy_name == "ftva"):
+                file_prefix += "-T16e4"
+            else:
+                file_prefix += "-T2e4"
+            file_names = [file_name for file_name in os.listdir("fig_data") if file_name.startswith(file_prefix)]
+            print("{}:{}".format(file_prefix, file_names))
+            # if note is not None:
+            #     file_name_alter = "fig_data/{}-{}-N{}-{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method, note)
+            #     if os.path.exists(file_name_alter):
+            #         file_name = file_name_alter
+            if len(file_names) == 0:
+                if policy_name == "whittle":
+                    continue
+                else:
+                    raise FileNotFoundError("no file with prefix {}".format(file_prefix))
+            batch_means_dict[(setting_name, policy_name)] = [[] for i in range(len(Ns))] # shape len(Ns)*num_batches
+            for file_name in file_names:
+                with open("fig_data/"+file_name, 'rb') as f:
+                    setting_and_data = pickle.load(f)
+                    full_reward_trace = setting_and_data["full_reward_trace"]
+                    for i,N in enumerate(Ns):
+                        print("time horizon of {} = {}".format(file_name, len(full_reward_trace[i,N])))
+                        cur_batch_size = int(len(full_reward_trace[i,N])/4)
+                        # if policy_name == "ftva":
+                        #     cur_batch_size = int(len(full_reward_trace[i,N])/10)
+                        for t in range(0, len(full_reward_trace[i,N]), cur_batch_size):
+                            batch_means_dict[(setting_name, policy_name)][i].append(np.mean(full_reward_trace[i, N][t:(t+cur_batch_size)]))
+            for i in range(len(Ns)):
+                assert len(batch_means_dict[(setting_name, policy_name)][i]) == num_batches
+            batch_means_dict[(setting_name, policy_name)] = np.array(batch_means_dict[(setting_name, policy_name)])
+            print(setting_name, policy_name, np.mean(batch_means_dict[(setting_name, policy_name)], axis=1), np.std(batch_means_dict[(setting_name, policy_name)], axis=1))
 
     for setting_name in settings:
         if setting_name == "eight-states":
@@ -353,49 +358,59 @@ def figure_from_multiple_files(note=None):
             upper_bound = 1
         else:
             files_w_prefix = [filename for filename in os.listdir("fig_data")
-                              if filename.startswith("{}-{}-N{}-{}-{}".format(setting_name, "id", 100, 1000, init_method))]
-            print(os.listdir("fig_data"))
+                              if filename.startswith("{}-{}-N{}-{}-{}".format(setting_name, "ftva", 100, 1000, init_method))]
             with open("fig_data/"+files_w_prefix[0], 'rb') as f:
                 setting_and_data = pickle.load(f)
                 upper_bound = setting_and_data["upper bound"]
-        # plt.plot(Ns, np.array([upper_bound] * len(Ns)), label="upper bound", linestyle="--")
-        plt.plot(Ns, np.array([1] * len(Ns)), label="upper bound", linestyle="--")
+        plt.plot(Ns, np.array([1] * len(Ns)), label="Upper bound", linestyle="--", color="k")
         for i,policy_name in enumerate(policies):
-            if (policy_name == "whittle") and ((setting_name, policy_name) not in reward_array_dict):
+            if (policy_name == "whittle") and ((setting_name, policy_name) not in batch_means_dict):
                 # plt.plot(Ns, [0]*len(Ns), label=policy2label[policy_name],
                 #      linewidth=1.5, linestyle=linestyle_str[i])
                 pass
             else:
-                plt.plot(Ns, np.average(reward_array_dict[(setting_name, policy_name)]/upper_bound, axis=0), label=policy2label[policy_name],
-                         linewidth=1.5, linestyle=linestyle_str[i])
+                plt.errorbar(Ns, np.mean(batch_means_dict[(setting_name, policy_name)], axis=1) / upper_bound,
+                             yerr=2*np.std(batch_means_dict[(setting_name, policy_name)], axis=1)/np.sqrt(num_batches) / upper_bound,
+                             label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
+                             marker=policy_markers[i], markersize=8, color=policy_colors[i])
             plt.xlabel("N", fontsize=14)
         # plt.title("Simulations for {} example".format(setting_name))
         plt.xticks(fontsize=14)
         plt.ylabel("Optimality ratio", fontsize=14)
         plt.yticks(fontsize=14)
-        # plt.ylim([0, 1.1*upper_bound]) ###
+        if setting2yrange[setting_name] is not None:
+            plt.ylim(setting2yrange[setting_name])
         plt.tight_layout()
         plt.grid()
-        plt.legend(fontsize=14)
-        if note is None:
-            figname = "figs2/{}-N{}-{}-{}.pdf".format(setting_name, Ns[0], Ns[-1], init_method)
+        if setting2legend_position[setting_name] is None:
+            plt.legend(fontsize=14)
+        elif type(setting2legend_position[setting_name]) is str:
+            plt.legend(fontsize=14,loc=setting2legend_position[setting_name])
         else:
-            figname = "figs2/{}-N{}-{}-{}-{}.pdf".format(setting_name, Ns[0], Ns[-1], init_method, note)
-        plt.savefig(figname)
+            plt.legend(fontsize=14,loc="lower right", bbox_to_anchor=setting2legend_position[setting_name])
+        plt.savefig("figs2/{}-N{}-{}-{}.pdf".format(setting_name, Ns[0], Ns[-1], init_method))
+        plt.savefig("formal_figs/{}-{}-init.pdf".format(setting_name, init_method))
         plt.show()
 
 
 if __name__ == "__main__":
     np.set_printoptions(suppress=True)
     np.set_printoptions(linewidth=600)
-    for setting_name in ["non-sa", "three-states"]: #["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]:
-        for policy_name in ["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: # ["id", "setexp", "setopt", "ftva", "lppriority", "setexp-priority", "twoset-v1"]
-            for rep_id in range(1, 2):
-                tic = time.time()
-                run_policies(setting_name, policy_name, "random", 20000, note="T2e4r{}".format(rep_id))
-                # run_policies(setting_name, policy_name, "same", 10000)
-                toc = time.time()
-                print("when T=20000, total_time per policy =", toc-tic)
+    # for setting_name in ["non-sa"]: #["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]:
+    #     for policy_name in ["ftva"]: #["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: # ["id", "setexp", "setopt", "ftva", "lppriority", "setexp-priority", "twoset-v1"]
+    #         for rep_id in range(3,6):
+    #             tic = time.time()
+    #             run_policies(setting_name, policy_name, "random", 160000, note="T16e4r{}".format(rep_id))
+    #             toc = time.time()
+    #             print("when T=160000, total time per policy =", toc-tic)
+
+    # for setting_name in ["non-sa-big4"]: #["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]:
+    #     for policy_name in ["setexp-priority", "whittle"]:  # ["id", "setexp", "setopt", "ftva", "lppriority", "setexp-priority", "twoset-v1"]
+    #         for rep_id in range(1,6):
+    #             tic = time.time()
+    #             run_policies(setting_name, policy_name, "random", 20000, note="T2e4r{}".format(rep_id))
+    #             toc = time.time()
+    #             print("when T=20000, total time per policy =", toc-tic)
 
     ## random three-state examples
     # for i in range(5):
@@ -423,13 +438,15 @@ if __name__ == "__main__":
 
 
     # ## random 10-state dirichlet examples
-    # for i in [137, 355]: #[137, 186, 189, 210, 260]:
+    # for i in [582]: #[137, 355, 582]:
     #     setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
     #     setting_path = "setting_data/" + setting_name
     #     setting = rb_settings.ExampleFromFile(setting_path)
     #     for policy_name in ["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
     #         for rep_id in range(2, 6):
     #             run_policies(setting_name, policy_name, "random", 20000, setting_path, note="T2e4r{}".format(rep_id))
+
+
 
     # ## random 16-state RG examples
     # for i in range(3):
@@ -439,5 +456,9 @@ if __name__ == "__main__":
     #     for policy_name in ["id", "setexp"]: #, "setopt", "ftva", "lppriority", "setopt-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
-    figure_from_multiple_files(note="T2e4")
+    # figure_from_multiple_files()
 
+    setting_name = "random-size-10-dirichlet-0.05-(355)"
+    setting_path = "setting_data/" + setting_name
+    setting = rb_settings.ExampleFromFile(setting_path)
+    rb_settings.print_bandit(setting, latex_format=True)

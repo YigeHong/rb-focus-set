@@ -298,7 +298,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, n
 
 
 def figure_from_multiple_files():
-    settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"] #， "non-sa-big4"]     #
+    settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]
     policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id"]
     linestyle_str = ["-.", "-", "--", "-.", "--", "-"]
     policy_markers = ["v",".","^","s","p","*"]
@@ -404,8 +404,17 @@ if __name__ == "__main__":
     #             toc = time.time()
     #             print("when T=160000, total time per policy =", toc-tic)
 
-    # for setting_name in ["non-sa-big4"]: #["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]:
-    #     for policy_name in ["setexp-priority", "whittle"]:  # ["id", "setexp", "setopt", "ftva", "lppriority", "setexp-priority", "twoset-v1"]
+    # ## random 10-state dirichlet examples
+    # for i in [582]: #[137, 355, 582]:
+    #     setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
+    #     setting_path = "setting_data/" + setting_name
+    #     setting = rb_settings.ExampleFromFile(setting_path)
+    #     for policy_name in ["setexp-priority"]: #["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+    #         for rep_id in range(1,6):
+    #             run_policies(setting_name, policy_name, "random", 20000, setting_path, note="T2e4r{}".format(rep_id))
+    #
+    # for setting_name in ["new2-eight-states", "three-states", "non-sa"]: #["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]:
+    #     for policy_name in ["setexp-priority"]:  # ["id", "setexp", "setopt", "ftva", "lppriority", "setexp-priority", "twoset-v1"]
     #         for rep_id in range(1,6):
     #             tic = time.time()
     #             run_policies(setting_name, policy_name, "random", 20000, note="T2e4r{}".format(rep_id))
@@ -437,17 +446,6 @@ if __name__ == "__main__":
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
 
-    # ## random 10-state dirichlet examples
-    # for i in [582]: #[137, 355, 582]:
-    #     setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
-    #     setting_path = "setting_data/" + setting_name
-    #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     for policy_name in ["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
-    #         for rep_id in range(2, 6):
-    #             run_policies(setting_name, policy_name, "random", 20000, setting_path, note="T2e4r{}".format(rep_id))
-
-
-
     # ## random 16-state RG examples
     # for i in range(3):
     #     setting_name = "RG-16-square-uniform-thresh=0.5-uniform-({})".format(i)
@@ -456,9 +454,9 @@ if __name__ == "__main__":
     #     for policy_name in ["id", "setexp"]: #, "setopt", "ftva", "lppriority", "setopt-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
     #         run_policies(setting_name, policy_name, "random", 10000, setting_path)
 
-    # figure_from_multiple_files()
+    figure_from_multiple_files()
 
-    setting_name = "random-size-10-dirichlet-0.05-(355)"
-    setting_path = "setting_data/" + setting_name
-    setting = rb_settings.ExampleFromFile(setting_path)
-    rb_settings.print_bandit(setting, latex_format=True)
+    # setting_name = "random-size-10-dirichlet-0.05-(355)"
+    # setting_path = "setting_data/" + setting_name
+    # setting = rb_settings.ExampleFromFile(setting_path)
+    # rb_settings.print_bandit(setting, latex_format=True)

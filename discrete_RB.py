@@ -957,7 +957,7 @@ class SetExpansionPolicy(object):
         :param cur_states: the current states of the arms
         :param cur_focus_set: array of IDs denoting the arms in the focus set
         :param tb_rule: random, ID, priority, which defines the tie breaking within and out of the focus set
-        :param rb_priority: np.array, defining the priority of states if tb_rule == priority, range from 1,2,3..|S|,
+        :param tb_priority: np.array, defining the priority of states if tb_rule == priority, range from 1,2,3..|S|,
                             smaller number means higher priority
         """
         # make sure priority >=1, for the convenience of later operations
@@ -1002,9 +1002,11 @@ class SetExpansionPolicy(object):
                 # find priority of arms using tb_priority
                 arm_priorities = tb_priority[cur_states]
                 # focus on the arms outside focus set and requesting pulls
+                # suppose arm_priorities = [1,2,3,1,2,3], req_focus_mask = [1,1,1,0,0,0], after multiplying and sorting,
+                # they become [0, 0, 0, 1, 2, 3]. The last a few arms has req_focus_mask=1 and smaller LP index.
                 arm_priorities = arm_priorities * req_focus_mask
                 sorted_indices = np.argsort(arm_priorities)
-                actions[sorted_indices[(self.N-(num_req_fs-budget)):]] = 0 ####
+                actions[sorted_indices[(self.N-(num_req_fs-budget)):]] = 0
             else:
                 raise NotImplementedError
             actions[non_focus] = 0
@@ -1020,10 +1022,12 @@ class SetExpansionPolicy(object):
             elif tb_rule == "priority":
                 # find priority of arms using tb_priority
                 arm_priorities = tb_priority[cur_states]
-                # focus on the arms outside focus set and requesting pulls
-                arm_priorities = arm_priorities * non_req_focus_mask
+                # focus on the arms outside focus set and requesting pulls.
+                # suppose arm_priorities = [1,2,3,1,2,3], non_req_focus_mas = [1,1,1,0,0,0], after multiplying and sorting,
+                # they become [1, 2, 3, S+1, S+1, S+1]. The first a few arms has non_req_focus_mask=1 and larger LP index.
+                arm_priorities = arm_priorities * non_req_focus_mask + (self.sspa_size+1)*(1-non_req_focus_mask)
                 sorted_indices = np.argsort(arm_priorities)
-                actions[sorted_indices[self.N-(num_non_req_fs+budget-self.N):]] = 1
+                actions[sorted_indices[0:(num_non_req_fs+budget-self.N)]] = 1
                 # print(num_non_req_fs - (self.N - budget), len(sorted_indices[-(num_non_req_fs+budget-self.N):]))
             else:
                 raise NotImplementedError
@@ -1045,6 +1049,8 @@ class SetExpansionPolicy(object):
                     # find priority of arms using tb_priority
                     arm_priorities = tb_priority[cur_states]
                     # focus on the arms outside focus set and requesting pulls
+                    # suppose arm_priorities = [1,2,3,1,2,3], req_non_focus_mask = [1,1,1,0,0,0], after multiplying and sorting,
+                    # they become [0, 0, 0, 1, 2, 3]. The last a few arms has req_non_focus_mask=1 and smaller LP index.
                     arm_priorities = arm_priorities * req_non_focus_mask
                     sorted_indices = np.argsort(arm_priorities)
                     actions[sorted_indices[-(num_req-budget):]] = 0
@@ -1063,9 +1069,11 @@ class SetExpansionPolicy(object):
                     # find priority of arms using tb_priority
                     arm_priorities = tb_priority[cur_states]
                     # focus on the arms outside focus set and requesting pulls
-                    arm_priorities = arm_priorities * non_req_non_focus_mask
+                    # suppose arm_priorities = [1,2,3,1,2,3], non_req_non_focus_mask = [1,1,1,0,0,0], after multiplying and sorting,
+                    # they become [1, 2, 3, S+1, S+1, S+1]. The first a few arms has non_req_non_focus_mask=1 and larger LP index.
+                    arm_priorities = arm_priorities * non_req_non_focus_mask + (self.sspa_size+1)*(1-non_req_non_focus_mask)
                     sorted_indices = np.argsort(arm_priorities)
-                    actions[sorted_indices[-(budget-num_req):]] = 1 ####
+                    actions[sorted_indices[0:budget-num_req]] = 1
                 else:
                     raise NotImplementedError
             else:

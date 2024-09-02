@@ -374,7 +374,7 @@ def get_ID_max_norm_focus_set(cur_states, beta, opt_state_probs, norm, W=None, r
 
 
 def test_ID_focus_set():
-    setting_name = "random-size-10-dirichlet-0.05-(6)"  #"random-size-10-dirichlet-0.05-(355)" #"random-size-4-uniform-(1)"
+    setting_name = "random-size-10-dirichlet-0.05-(355)"  #"random-size-10-dirichlet-0.05-(355)" #"random-size-4-uniform-(1)"
     setting_path = "setting_data/" + setting_name
     if setting_name == "eight-states":
         probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
@@ -406,7 +406,6 @@ def test_ID_focus_set():
     else:
         raise NotImplementedError
 
-
     # setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(0)")
     N = 100
     act_frac = setting.suggest_act_frac
@@ -416,7 +415,7 @@ def test_ID_focus_set():
     T = 1200
     T_ahead = 100
     init_method = "random" # "random" or "bad
-    plot_W_norm = False
+    plot_W_norm = True
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     y = analyzer.solve_lp()[1]
@@ -451,28 +450,28 @@ def test_ID_focus_set():
     for i in range(T):
         ideal_acts_lookahead_min.append(min(ideal_acts[i:(min(i+T_ahead,T))]))
 
-    L1_norm_terms = []
-    W_norm_terms = []
-    budget_window_sizes = []
-    for i in range(T):
-        XD = states_to_scaled_state_counts(setting.sspa_size, N, states_trace[i][0:ideal_acts_lookahead_min[i]])
-        m = ideal_acts_lookahead_min[i]/N
-        xmmu_diff = XD - m*analyzer.state_probs
-        L1_norm_terms.append(np.linalg.norm(xmmu_diff, ord=1)/2)
-        if plot_W_norm:
-            W_norm_terms.append(np.sqrt(np.matmul(np.matmul(xmmu_diff.T, W), xmmu_diff))/2 * setexp_policy.ratiocw)
-        budget_window_sizes.append(beta*(1-m))
-    plt.figure(figsize=(10,5))
-    plt.plot(np.arange(T), L1_norm_terms, label="L1 norm term")
-    if plot_W_norm:
-        plt.plot(np.arange(T), W_norm_terms, label="W norm term")
-    plt.plot(np.arange(T), budget_window_sizes, label="budget window")
-    plt.legend()
-    plt.ylabel("budget-deviation bounds")
-    plt.xlabel("T")
-    plt.title("{}, N={}, T_ahead={}, init method={}".format(setting_name+" example", N, T_ahead, init_method))
-    plt.savefig("figs2/ID-focus-set-compare/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}.png".format("norm-bounds", setting_name, N, T, T_ahead, init_method))
-    plt.show()
+    # L1_norm_terms = []
+    # W_norm_terms = []
+    # budget_window_sizes = []
+    # for i in range(T):
+    #     XD = states_to_scaled_state_counts(setting.sspa_size, N, states_trace[i][0:ideal_acts_lookahead_min[i]])
+    #     m = ideal_acts_lookahead_min[i]/N
+    #     xmmu_diff = XD - m*analyzer.state_probs
+    #     L1_norm_terms.append(np.linalg.norm(xmmu_diff, ord=1)/2)
+    #     if plot_W_norm:
+    #         W_norm_terms.append(np.sqrt(np.matmul(np.matmul(xmmu_diff.T, W), xmmu_diff))/2 * setexp_policy.ratiocw)
+    #     budget_window_sizes.append(beta*(1-m))
+    # plt.figure(figsize=(10,5))
+    # plt.plot(np.arange(T), L1_norm_terms, label="L1 norm term")
+    # if plot_W_norm:
+    #     plt.plot(np.arange(T), W_norm_terms, label="W norm term")
+    # plt.plot(np.arange(T), budget_window_sizes, label="budget window")
+    # plt.legend()
+    # plt.ylabel("budget-deviation bounds")
+    # plt.xlabel("T")
+    # plt.title("{}, N={}, T_ahead={}, init method={}".format(setting_name+" example", N, T_ahead, init_method))
+    # plt.savefig("figs2/ID-focus-set-compare/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}.png".format("norm-bounds", setting_name, N, T, T_ahead, init_method))
+    # plt.show()
 
     # L1_focus_set_sizes = []
     # W_focus_set_sizes = []
@@ -492,11 +491,21 @@ def test_ID_focus_set():
     if plot_W_norm:
         plt.plot(np.arange(T), np.array(max_W_focus_set_sizes)/N, label="max W norm focus set")
     plt.plot(np.arange(T), np.array(ideal_acts_lookahead_min)/N, label="ID focus set")
+    plt.plot(np.arange(T), np.array(ideal_acts)[0:T]/N, label="N_t")
+
+    file_name = "fig_data/{}-setexp-N100-1000-random-T2e4".format(setting_name)
+    i_of_N = 0
+    with open(file_name, 'rb') as f:
+        setting_and_data = pickle.load(f)
+        ideal_action_trace = setting_and_data["full_ideal_acts_trace"][(i_of_N, N)]
+
+    plt.plot(np.arange(T), np.array(ideal_action_trace[0:T])/N, label="setexp")
+
     plt.legend()
     plt.ylabel("set size / N")
     plt.xlabel("T")
     plt.title("{}, N={}, T_ahead={}, init method={}".format(setting_name+" example", N, T_ahead, init_method))
-    plt.savefig("figs2/ID-focus-set-compare/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}.png".format("focus-set-sizes", setting_name, N, T, T_ahead, init_method))
+    # plt.savefig("figs2/ID-focus-set-compare/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}.png".format("focus-set-sizes", setting_name, N, T, T_ahead, init_method))
     plt.show()
 
 def visualize_focus_sets_from_file():
@@ -753,5 +762,9 @@ np.set_printoptions(linewidth=800)
 # understand_whittle_index()
 # understand_spatial_graph()
 # test_SA()
+
+
+A = [1,2,3,4,5,6]
+print(A[(-3):])
 
 

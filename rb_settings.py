@@ -125,6 +125,7 @@ class RandomExample(object):
 
         self.unichain_eigval = None
         self.local_stab_eigval = None
+        self.y = None
         self.avg_reward_upper_bound = None
         self.lp_priority = None
         self.whittle_priority = None

@@ -52,8 +52,8 @@ def search_and_store_unstable_examples():
     num_examples = 10000
     num_reward_modif_examples = 0
     T_mf_simulation = 1000
-    make_scatter_plot = True
-    plot_subopt_cdf = False
+    make_scatter_plot = False
+    plot_subopt_cdf = True
     save_subopt_examples = False
     unichain_threshold = 0.95
     plot_sa_hitting_time = False
@@ -72,7 +72,7 @@ def search_and_store_unstable_examples():
     sspa_size = 10
     distr = "dirichlet" #"uniform", "dirichlet", "CL
     laziness = None
-    alpha = 1
+    alpha = 0.05
     beta = 4 # > 3
     distr_and_parameter = distr
     if distr == "uniform":
@@ -154,12 +154,19 @@ def search_and_store_unstable_examples():
                     continue
                 analyzer = result[0]
                 setting.avg_reward_upper_bound = analyzer.opt_value
+                setting.y = analyzer.y.copy
                 setting.lp_priority = analyzer.solve_LP_Priority(verbose=False)
                 setting.whittle_priority = analyzer.solve_whittles_policy()
                 setting.unichain_eigval = result[1]
                 setting.local_stab_eigval = result[2]
                 print(setting.avg_reward_upper_bound, setting.lp_priority, setting.whittle_priority, setting.unichain_eigval, setting.local_stab_eigval)
                 all_data["examples"].append(setting)
+    # for i, setting in enumerate(all_data["examples"]):
+    #     if setting is None:
+    #         continue
+    #     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, setting.suggest_act_frac)
+    #     y = analyzer.solve_lp(verbose=False)[1]
+    #     setting.y = y.copy()
     # For the locally unstable examples, run the mean-field limit reward, and generate reward modification
     for i, setting in enumerate(all_data["examples"]):
         if setting is None:
@@ -228,11 +235,16 @@ def search_and_store_unstable_examples():
         for i, setting in enumerate(all_data["examples"]):
             if setting is None:
                 continue
+            if np.any(setting.y[:,0]+setting.y[:,1] < 1e-7):
+                # skip the ambiguous examples where the definition of local stability is not unique
+                continue
             eig_vals_list.append([setting.unichain_eigval, setting.local_stab_eigval])
             if setting.unichain_eigval <= unichain_threshold:
                 unichain_count +=1
                 if setting.local_stab_eigval > 1:
                     unstable_unichain_count += 1
+        print("Total number of non-ambiguous examples= {}, 0.95-unichain_count = {}, unstable-0.95-unichain_count = {}".format(
+            len(eig_vals_list), unichain_count, unstable_unichain_count))
         eig_vals_list = np.array(eig_vals_list)
         colors = ["r" if eig_vals_list[i,1]>1 else "b" for i in range(eig_vals_list.shape[0])]
         plt.scatter(eig_vals_list[:,0], eig_vals_list[:,1], c=colors, s=1)
@@ -257,10 +269,15 @@ def search_and_store_unstable_examples():
     for i, setting in enumerate(all_data["examples"]):
         if setting is None:
             continue
+        if np.any(setting.y[:,0]+setting.y[:,1] < 1e-7):
+            # skip the ambiguous examples where the definition of local stability is not unique
+            continue
         if i >= simulate_up_to_ith:
             continue
         if (setting.local_stab_eigval > 1) and (setting.unichain_eigval < 1):
             print("the {}-th example is locally unstable".format(i))
+            if np.any(setting.y[:,1]+setting.y[:,0]<1e-7):
+                print(setting.y[:,1]+setting.y[:,0])
             # subopt_ratio = setting.avg_reward_lpp_mf_limit / setting.avg_reward_upper_bound
             # subopt_ratio_w = setting.avg_reward_whittle_mf_limit / setting.avg_reward_upper_bound
             subopt_ratio = np.average(np.array(simu_data["lppriority"][i])) / setting.avg_reward_upper_bound

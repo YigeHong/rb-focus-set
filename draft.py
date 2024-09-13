@@ -12,6 +12,44 @@ import rb_settings
 import os
 
 
+def convert_name_to_setting(setting_name, setting_path):
+    if setting_name == "eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+    elif setting_name == "three-states":
+        setting = rb_settings.Gast20Example2()
+    elif setting_name == "non-sa":
+        setting = rb_settings.NonSAExample()
+    elif setting_name == "eight-states-045":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.suggest_act_frac = 0.45
+    elif setting_name == "new-eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.reward_tensor[0,1] = 0.02
+    elif setting_name == "new2-eight-states":
+        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.reward_tensor[0,1] = 0.1/30
+    elif setting_name == "non-sa-big1":
+        setting = rb_settings.BigNonSAExample("v1")
+    elif setting_name == "non-sa-big2":
+        setting = rb_settings.BigNonSAExample("v2")
+    elif setting_name == "non-sa-big3":
+        setting = rb_settings.BigNonSAExample("v3")
+    elif setting_name == "non-sa-big4":
+        setting = rb_settings.BigNonSAExample("v4")
+    elif setting_path is not None:
+        setting = rb_settings.ExampleFromFile(setting_path)
+    else:
+        raise NotImplementedError
+    return setting
+
 def test_repeated_solver():
     probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
     setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
@@ -376,35 +414,7 @@ def get_ID_max_norm_focus_set(cur_states, beta, opt_state_probs, norm, W=None, r
 def test_ID_focus_set():
     setting_name = "random-size-10-dirichlet-0.05-(355)"  #"random-size-10-dirichlet-0.05-(355)" #"random-size-4-uniform-(1)"
     setting_path = "setting_data/" + setting_name
-    if setting_name == "eight-states":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
-            "eg4action-gap-tb", 8)
-        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-    elif setting_name == "three-states":
-        setting = rb_settings.Gast20Example2()
-    elif setting_name == "non-sa":
-        setting = rb_settings.NonSAExample()
-    elif setting_name == "non-sa-big1":
-        setting = rb_settings.BigNonSAExample()
-    elif setting_name == "eight-states-045":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
-            "eg4action-gap-tb", 8)
-        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-        setting.suggest_act_frac = 0.45
-    elif setting_name == "new-eight-states":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
-            "eg4action-gap-tb", 8)
-        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-        setting.reward_tensor[0,1] = 0.02
-    elif setting_name == "new2-eight-states":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
-            "eg4action-gap-tb", 8)
-        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-        setting.reward_tensor[0,1] = 0.1/30
-    elif setting_path is not None:
-        setting = rb_settings.ExampleFromFile(setting_path)
-    else:
-        raise NotImplementedError
+    setting = convert_name_to_setting(setting_name, setting_path)
 
     # setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(0)")
     N = 100
@@ -558,11 +568,6 @@ def visualize_focus_sets_from_file():
     plt.show()
 
 
-
-
-
-
-
 def animate_ID_policy():
     probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
     setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
@@ -663,7 +668,6 @@ def understand_whittle_index():
     analyzer.understand_lagrange_relaxation(-3, 3, 0.05)
 
 
-
 def understand_spatial_graph():
     dim = 2
     sspa_size = 16
@@ -749,7 +753,6 @@ def test_SA():
     print("time of matrix inversion", toc-tic)
 
 
-
 # np.random.seed(114514)
 np.set_printoptions(precision=3)
 np.set_printoptions(linewidth=800)
@@ -762,9 +765,4 @@ np.set_printoptions(linewidth=800)
 # understand_whittle_index()
 # understand_spatial_graph()
 # test_SA()
-
-
-A = [1,2,3,4,5,6]
-print(A[(-3):])
-
-
+visualize_ideal_action_persistency()

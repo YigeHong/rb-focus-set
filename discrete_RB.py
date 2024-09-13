@@ -789,7 +789,7 @@ class IDPolicy(object):
         assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
-    def get_actions(self, cur_states):
+    def get_actions(self, cur_states, output_ideal_actions=False):
         """
         :param cur_states: the current states of the arms
         :return: the actions taken by the arms under the policy
@@ -798,9 +798,13 @@ class IDPolicy(object):
         # count the indices of arms in each state
         for state in self.sspa:
             s2indices[state] = np.where(cur_states == state)[0]
-        actions = np.zeros((self.N,), dtype=np.int64)
+        ideal_actions = np.zeros((self.N,), dtype=np.int64)
         for state in self.sspa:
-            actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
+            ideal_actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
+        if not output_ideal_actions:
+            actions = ideal_actions
+        else:
+            actions = ideal_actions.copy()
 
         budget = int(self.N * self.act_frac)
         budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when alpha N
@@ -820,7 +824,10 @@ class IDPolicy(object):
             num_action_rect = 0
         assert np.sum(actions) == budget
 
-        return actions, self.N - num_action_rect
+        if not output_ideal_actions:
+            return actions, self.N - num_action_rect
+        else:
+            return actions, self.N - num_action_rect, ideal_actions
 
 
 class SetExpansionPolicy(object):
@@ -952,7 +959,7 @@ class SetExpansionPolicy(object):
         # print("state count = ", self.z.value * self.N, "states = ", cur_states, "focus set = ", next_focus_set)
         return next_focus_set, non_shrink_flag
 
-    def get_actions(self, cur_states, cur_focus_set, tb_rule="random", tb_priority=None):
+    def get_actions(self, cur_states, cur_focus_set, tb_rule="random", tb_priority=None, output_ideal_actions=False):
         """
         :param cur_states: the current states of the arms
         :param cur_focus_set: array of IDs denoting the arms in the focus set
@@ -970,9 +977,13 @@ class SetExpansionPolicy(object):
         # count the indices of arms in each state
         for state in self.sspa:
             s2indices[state] = np.where(cur_states == state)[0]
-        actions = np.zeros((self.N,), dtype=np.int64)
+        ideal_actions = np.zeros((self.N,), dtype=np.int64)
         for state in self.sspa:
-            actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
+            ideal_actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
+        if not output_ideal_actions:
+            actions = ideal_actions
+        else:
+            actions = ideal_actions.copy()
 
         budget = int(self.N * self.act_frac)
         budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when alpha N
@@ -1081,7 +1092,10 @@ class SetExpansionPolicy(object):
             conformity_flag = 1
         assert np.sum(actions) == budget, "np.sum(actions)={}, budget={}".format(np.sum(actions), budget)
 
-        return actions, conformity_flag
+        if not output_ideal_actions:
+            return actions, conformity_flag
+        else:
+            return actions, conformity_flag, ideal_actions
 
 
 class SetOptPolicy(object):

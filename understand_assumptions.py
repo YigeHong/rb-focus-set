@@ -45,19 +45,29 @@ def compute_mf_reward(setting, init_state_fracs, priority, T):
 def analyze_new_reward_modif(setting, direction):
     pass
 
+def y2nondegeneracy(y):
+    Sneu = np.where(np.all(y > 1e-7, axis=1))
+    if len(Sneu) > 1:
+        return -1
+    elif len(Sneu) == 0:
+        return 0
+    else:
+        return min(y[Sneu[0],1], y[Sneu[0],0])
 
 
 def search_and_store_unstable_examples():
-    ## output parameters
+    ## output settings
     num_examples = 10000
     num_reward_modif_examples = 0
     T_mf_simulation = 1000
     make_scatter_plot = False
-    plot_subopt_cdf = True
+    plot_subopt_cdf = False
     save_subopt_examples = False
     unichain_threshold = 0.95
     plot_sa_hitting_time = False
     plot_sa_hitting_time_vs_opt = False
+    find_almost_unstable_examples = True
+    save_almost_unstable_examples = True
     ## simulation settings
     N = 500
     simu_thousand_steps = 20 # simulate 1000*simu_thousand_steps many time steps
@@ -228,6 +238,7 @@ def search_and_store_unstable_examples():
         if all_data["examples"][i].sa_max_hitting_time > 1e4:
             print("The {}-th example is non-SA, max hitting time = {}".format(i, all_data["examples"][i].sa_max_hitting_time))
 
+    ## make scatter plot of unichain and local stability
     if make_scatter_plot:
         eig_vals_list = []
         unstable_unichain_count = 0
@@ -264,6 +275,7 @@ def search_and_store_unstable_examples():
         plt.savefig("formal_figs/eigen-{}.pdf".format(distr_and_parameter))
         plt.show()
 
+    ## calculating subopt ratios for unstable examples
     subopt_ratios = []
     subopt_ratios_w = []
     for i, setting in enumerate(all_data["examples"]):
@@ -296,7 +308,7 @@ def search_and_store_unstable_examples():
                         save_bandit(setting, setting_save_path, {"alpha":alpha})
     print("{} examples are locally unstable".format(len(subopt_ratios)))
 
-    # visualize percentage of subopt examples
+    ## visualize percentage of subopt examples
     if plot_subopt_cdf:
         name_data_dict = {"lpp":subopt_ratios, "whittle":subopt_ratios_w,
                           "max":[max(subopt_ratios[i], subopt_ratios_w[i]) for i in range(len(subopt_ratios))]}
@@ -327,6 +339,7 @@ def search_and_store_unstable_examples():
             plt.savefig("figs2/nonugap-subopt-{}-size-{}-{}.pdf".format(name, sspa_size, distr_and_parameter))
             plt.show()
 
+    ## simulating unstable examples
     if do_simulation:
         print("Simulation starts")
         for policy_name in policy_names:
@@ -386,6 +399,7 @@ def search_and_store_unstable_examples():
                     np.std(np.array(simu_data[policy_name][i])) / np.sqrt(simu_thousand_steps))
                 )
 
+    ## simulating FTVA for all examples
     if do_ftva_simulation:
         print("Simulation of FTVA starts")
         for i, setting in enumerate(all_data["examples"]):
@@ -440,6 +454,7 @@ def search_and_store_unstable_examples():
                 time.time()-tic)
             )
 
+    ## plot CDF of log hitting time in the SA assumption
     if plot_sa_hitting_time:
         all_hitting_times = []
         for i, setting in enumerate(all_data["examples"]):
@@ -458,6 +473,7 @@ def search_and_store_unstable_examples():
         plt.savefig("figs2/sa-hit-time-log10-size-{}-{}.png".format(sspa_size, distr_and_parameter))
         plt.show()
 
+    ## plot hitting time versus optimality ratio
     if plot_sa_hitting_time_vs_opt:
         plot_hitting_times = []
         plot_opt_gap_ratio = []
@@ -473,6 +489,53 @@ def search_and_store_unstable_examples():
         plt.savefig("figs2/sa-hit-time-ftva-reward-size-{}-scatter-{}.png".format(sspa_size, distr_and_parameter))
         plt.show()
 
+    if find_almost_unstable_examples:
+        Phi_radiuses = -np.ones((num_examples,))
+        nondegeneracies = -np.ones((num_examples,))
+        for i,setting in enumerate(all_data["examples"]):
+            if (setting is None) or (setting.local_stab_eigval >= 1) or (setting.unichain_eigval >= 1):
+                # only consider locally stable examples
+                continue
+            if np.any(setting.y[:,0]+setting.y[:,1] < 1e-7):
+                # skip the ambiguous examples where the definition of local stability is not unique
+                continue
+            nondegeneracies[i] = y2nondegeneracy(setting.y)
+            if nondegeneracies[i] > 0.15:
+                Phi_radiuses[i] = setting.local_stab_eigval
+        sorted_indices = np.flip(np.argsort(Phi_radiuses))
+        sorted_Phi_radiuses = np.flip(np.sort(Phi_radiuses))
+        # print(np.sum(Phi_radiuses>0))
+        # indices_to_save = np.sort(np.random.choice(np.arange(0,350), size=10))
+        target_radiuses = [0.99, 0.95, 0.90]
+        num_to_save_for_each_target = 2
+        rem_num = num_to_save_for_each_target
+        for j in range(350):
+            if Phi_radiuses[sorted_indices[j]] < target_radiuses[0]:
+                if rem_num > 0:
+                    print("index={}, rho(Phi)={}, nondegeneracy={}, \n {}".format(sorted_indices[j], Phi_radiuses[sorted_indices[j]],
+                                                                               nondegeneracies[sorted_indices[j]], all_data["examples"][sorted_indices[j]].y))
+                    setting_save_path = "setting_data/stable-size-{}-{}-({})".format(sspa_size, distr_and_parameter, sorted_indices[j])
+                    if save_almost_unstable_examples:
+                        print("saving the example...")
+                        if os.path.exists(setting_save_path):
+                            print(setting_save_path+" exists!")
+                        else:
+                            save_bandit(all_data["examples"][sorted_indices[j]], setting_save_path, {"alpha":alpha})
+                            print(setting_save_path+" saved!")
+                    rem_num -= 1
+                else:
+                    target_radiuses.pop(0)
+                    rem_num = num_to_save_for_each_target
+            if len(target_radiuses) == 0:
+                break
+
+        # temp_num_points = 1000
+        # plt.plot(1-Phi_radiuses[sorted_indices[0:temp_num_points]], np.linspace(0,1,temp_num_points), label="spec gap")
+        # plt.plot(np.sort(nondegeneracies[sorted_indices[0:temp_num_points]]), np.linspace(0,1,temp_num_points), label="non-degeneracy")
+        # plt.legend()
+        # plt.show()
+
+    ## save data
     print("saving data... do not quit...")
     with open(file_path, "wb") as f:
         pickle.dump(all_data, f)

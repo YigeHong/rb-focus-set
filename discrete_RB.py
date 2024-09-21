@@ -495,7 +495,7 @@ class PriorityPolicy(object):
             s2indices[state] = np.where(cur_states == state)[0]
 
         actions = np.zeros((self.N,))
-        rem_budget = int(self.N * self.act_frac)
+        rem_budget = round(self.N * self.act_frac)
         rem_budget += np.random.binomial(1, self.N * self.act_frac - rem_budget)  # randomized rounding
         # go from high priority to low priority
         for state in self.priority_list:
@@ -575,7 +575,7 @@ class RandomTBPolicy(object):
         for state in self.sspa:
             actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
 
-        budget = int(self.N * self.act_frac)
+        budget = round(self.N * self.act_frac)
         budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding
         num_requests = np.sum(actions)
         if num_requests > budget:
@@ -641,7 +641,7 @@ class FTVAPolicy(object):
         :return: actions, virtual_actions
         """
         # generate budget using randomized rounding
-        budget = int(self.N * self.act_frac)
+        budget = round(self.N * self.act_frac)
         budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding
         # generate virtual actions according to virtual states
         vs2indices = {state:None for state in self.sspa}
@@ -806,8 +806,8 @@ class IDPolicy(object):
         else:
             actions = ideal_actions.copy()
 
-        budget = int(self.N * self.act_frac)
-        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when alpha N
+        budget = round(self.N * self.act_frac)
+        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when act_frac N
 
         num_requests = np.sum(actions)
         if num_requests > budget:
@@ -985,8 +985,8 @@ class SetExpansionPolicy(object):
         else:
             actions = ideal_actions.copy()
 
-        budget = int(self.N * self.act_frac)
-        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when alpha N
+        budget = round(self.N * self.act_frac)
+        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when act_frac N
 
         cur_focus_set_mask = np.zeros((self.N,), dtype=int)
         cur_focus_set_mask[cur_focus_set] = 1
@@ -1250,8 +1250,8 @@ class SetOptPolicy(object):
         for state in self.sspa:
             actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
 
-        budget = int(self.N * self.act_frac)
-        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when alpha N
+        budget = round(self.N * self.act_frac)
+        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when act_frac N
 
         cur_focus_set_mask = np.zeros((self.N,), dtype=int)
         cur_focus_set_mask[cur_focus_set] = 1
@@ -1414,8 +1414,8 @@ class SetOptPolicy(object):
         for state in self.sspa:
             actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
 
-        budget = int(self.N * self.act_frac)
-        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when alpha N
+        budget = round(self.N * self.act_frac)
+        budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding when act_frac N
 
         # priority levels
         priority_levels = 3*np.ones((self.N,))
@@ -1466,9 +1466,11 @@ class TwoSetPolicy(object):
 
         self.N = N
         self.act_frac = act_frac
+        assert np.allclose(N*act_frac, int(N*act_frac), atol=1e-7), "N={}, act_frac={}, N*act_frac={}".format(N, act_frac, N*act_frac)
         self.y = y
         self.U = U
         self.U_sqrt = scipy.linalg.sqrtm(U)
+        self.lam_U = np.max(np.abs(np.linalg.eigvals(self.U)))
         self.EPS = 1e-7
         self.rounding = rounding
 
@@ -1486,8 +1488,11 @@ class TwoSetPolicy(object):
 
         self.Sempty = np.where(self.state_probs <= self.EPS)[0]
         self.Sneu = np.where(np.all(self.y > self.EPS, axis=1))[0]
-        self.eta = self.compute_eta()
-        # todo: handle the case when y corresponds to more than one neutral state
+        self.err_sempty = (len(self.Sempty)+1)/self.N
+        self.errrd = (1+2*np.sqrt(self.lam_U))*self.sspa_size / self.N
+        self.eta, self.errfe = self.compute_eta()
+        # errrd is too large, making the OL set empty unless N is huge
+        print("eta={}, errfe={}, errrd={}".format(self.eta, self.errfe, self.errrd))
         assert len(self.Sneu) <= 1
 
         # variables and parameters
@@ -1505,7 +1510,7 @@ class TwoSetPolicy(object):
         self.beta.value = min(act_frac, 1-act_frac)
 
     def compute_eta(self):
-        if (self.U is np.infty) or len(self.Sneu) == 0:
+        if (self.U is np.infty) or len(self.Sneu) != 1:
             return 0
 
         c_act_no_neu = self.policy[:,1].copy()
@@ -1523,20 +1528,27 @@ class TwoSetPolicy(object):
         objective = cp.Minimize(f_local)
         problem = cp.Problem(objective, constrs)
         problem.solve()
-        if f_local.value is not None:
-            f_1 = f_local.value.copy()
+        if problem.status not in ["infeasible", "unbounded"]:
+            eta_1 = f_local.value.copy()
         else:
-            f_1 = np.infty
+            eta_1 = np.infty
         # solve the second problem
         constrs[-1] = cp.matmul(c_pass_no_neu.T, x) >= 1 - self.act_frac
         problem = cp.Problem(objective, constrs)
         problem.solve()
-        if f_local.value is not None:
-            f_2 = f_local.value.copy()
+        if problem.status not in ["infeasible", "unbounded"]:
+            eta_2 = f_local.value.copy()
         else:
-            f_2 = np.infty
-        # todo: before running misocp, integrate the minus something back to the optimization problem
-        return min(f_1, f_2) - (len(self.Sempty)+1)/self.N
+            eta_2 = np.infty
+        eta = min(eta_1, eta_2)
+        errfe = 2*np.sqrt(2*self.lam_U)*self.err_sempty
+
+        if ((eta_1 == np.infty) and ((self.act_frac - np.max(c_act_no_neu))*errfe/eta >= self.err_sempty)) or \
+        ((eta_2 == np.infty) and ((1 - self.act_frac - np.max(c_pass_no_neu))*errfe/eta >= self.err_sempty)):
+            eta = (1/np.sqrt(self.sspa_size)) * min(self.y[self.Sneu[0],1], self.y[self.Sneu[0],0])
+            errfe = self.err_sempty
+
+        return eta, errfe
 
     def get_new_focus_set(self, cur_states, last_OL_set):
         if (self.U is np.infty) or self.eta <= 0:
@@ -1558,32 +1570,33 @@ class TwoSetPolicy(object):
 
         cur_m = len(last_OL_set)/self.N
         # first solve for the D^{OL}_temp
-        x_minus_mmu = s_count_scaled_fs - cur_m * self.state_probs
-        cur_delta = self.eta*cur_m - np.sqrt(np.matmul(np.matmul(x_minus_mmu.T, self.U), x_minus_mmu))
-        if cur_delta >= 0:
+        delta_of_all_arms = self.eta - self.errfe - np.linalg.norm(np.matmul(self.U_sqrt, s_count_scaled - self.state_probs))
+        cur_delta = self.eta*cur_m - self.errfe - np.linalg.norm(np.matmul(self.U_sqrt, s_count_scaled_fs - cur_m * self.state_probs))
+        if delta_of_all_arms >= 0:
+            # print("expansion mode full")
+            return np.arange(0, self.N, dtype=int)
+        elif cur_delta >= 0:
+            # print("expansion mode partial")
             z_temp = s_count_scaled_fs
         else:
-            # shrink the OL set
+            # print("shrinking mode")
+            # need shrink the OL set, but try to maximize the overlap with the previous OL set
             if self.rounding == "direct":
                 constrs = []
                 constrs.append(self.z >= 0)
                 constrs.append(self.z <= self.s_count_scaled_fs)
                 constrs.append(self.m == cp.sum(self.z))
-                constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.z - self.m*self.state_probs)))
+                constrs.append(cp.SOC(self.eta*self.m - self.errfe - self.errrd, self.U_sqrt @ (self.z - self.m*self.state_probs)))
                 objective = cp.Maximize(self.m)
                 problem = cp.Problem(objective, constrs)
                 problem.solve()
-                z_temp = self.z.value.copy()
-            elif self.rounding == "misocp":
-                constrs = []
-                constrs.append(self.Nz >= 0)
-                constrs.append(self.Nz <= self.N*self.s_count_scaled_fs)
-                constrs.append(self.m == cp.sum(self.Nz) / self.N)
-                constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.Nz / self.N - self.m*self.state_probs)))
-                objective = cp.Maximize(self.m)
-                problem = cp.Problem(objective, constrs)
-                problem.solve()
-                z_temp = self.Nz.value.copy() / self.N
+                if problem.status in ["infeasible", "unbounded"]:
+                    # print("{}, choosing empty set".format(problem.status))
+                    z_temp = np.zeros((self.sspa_size,))
+                else:
+                    # print("{}, expanding".format(problem.status))
+                    z_temp = self.z.value.copy()
+                    z_temp = np.floor(self.N*z_temp) / self.N
             else:
                 raise NotImplementedError
         # then solve for the next OL set
@@ -1592,21 +1605,19 @@ class TwoSetPolicy(object):
             constrs.append(self.z >= z_temp)
             constrs.append(self.z <= self.s_count_scaled)
             constrs.append(self.m == cp.sum(self.z))
-            constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.z - self.m*self.state_probs)))
+            constrs.append(cp.SOC(self.eta*self.m - self.errfe - self.errrd, self.U_sqrt @ (self.z - self.m*self.state_probs)))
             objective = cp.Maximize(self.m)
             problem = cp.Problem(objective, constrs)
             problem.solve()
-            z_OL = self.z.value.copy()
-        elif self.rounding == "misocp":
-            constrs = []
-            constrs.append(self.Nz >= self.N*z_temp)
-            constrs.append(self.Nz <= self.N*self.s_count_scaled)
-            constrs.append(self.m == cp.sum(self.Nz) / self.N)
-            constrs.append(cp.SOC(self.eta*self.m, self.U_sqrt @ (self.Nz / self.N - self.m*self.state_probs)))
-            objective = cp.Maximize(self.m)
-            problem = cp.Problem(objective, constrs)
-            problem.solve()
-            z_OL = self.z.value.copy()
+            if problem.status in ["infeasible", "unbounded"]:
+                # print("{}, choosing z_temp".format(problem.status))
+                z_OL = z_temp
+                #todo: somehow cvxpy often confuse infeasible with unbounded. It does not matter but still good to figure out why
+                #
+                # if problem.status == "unbounded":
+                #     print("z_temp={}, s_count={}".format(z_temp,self.s_count_scaled.value))
+            else:
+                z_OL = self.z.value.copy()
         else:
             raise NotImplementedError
 
@@ -1619,9 +1630,7 @@ class TwoSetPolicy(object):
         return next_OL_set
 
     def get_actions(self, cur_states, cur_OL_set):
-        exp_budget = self.N * self.act_frac
-        random_bit = np.random.binomial(1, exp_budget - int(exp_budget))
-        budget = int(exp_budget) + random_bit
+        budget = round(self.N * self.act_frac)
 
         s2indices = {state:None for state in self.sspa}
         for state in self.sspa:
@@ -1630,9 +1639,7 @@ class TwoSetPolicy(object):
         actions = np.zeros((self.N,), dtype=np.int64)
         if len(cur_OL_set) > 0:
             local_exp_budget = len(cur_OL_set) * self.act_frac
-            # todo: different from the paper, here we allow non-integer alpha N;
-            #  and we share the random bit between budget and local budget so that action recfitication always work.
-            #  Check if the proof still goes through in this setting, or just avoid non-integer alpha N.
+            random_bit = np.random.binomial(1, local_exp_budget - int(local_exp_budget))
             local_budget = int(local_exp_budget) + random_bit
 
             s2indices_fs = {state:None for state in self.sspa}
@@ -1641,40 +1648,39 @@ class TwoSetPolicy(object):
             # count the indices of arms in each state
             for state in self.sspa:
                 s2indices_fs[state] =  np.where(np.all([cur_states == state, cur_OL_set_mask], axis=0))[0]
-                expected_act_count = self.policy[state, 1] * len(s2indices_fs[state])
                 # choose actions by randomized rounding
                 if state in self.Sempty:
+                    expected_act_count = self.policy[state, 1] * len(s2indices_fs[state])
                     p_round = expected_act_count - int(expected_act_count)
                     act_count = int(expected_act_count) + np.random.binomial(1, p_round)
+                    actions[s2indices_fs[state][0:act_count]] = 1
                 elif state in self.Sneu:
                     continue
                 else:
-                    act_count = int(expected_act_count)
-                actions[s2indices_fs[state][0:act_count]] = 1
+                    if self.policy[state, 1] > 0.5: # fluid active state
+                        actions[s2indices_fs[state]] = 1
+                    else:
+                        actions[s2indices_fs[state]] = 0
             rem_local_budget = local_budget - np.sum(actions)
             num_neutral_arms = len(s2indices_fs[self.Sneu[0]])
-            # if self.rounding == "direct":
-            if rem_local_budget < 0:
-                # print("baka", end=" ")
-                # activate no neutral arms; rectify some arms that take active actions;
-                actions[s2indices_fs[self.Sneu[0]]] = 0
-                act_arms = np.where(np.all([actions == 1, cur_OL_set_mask], axis=0))[0]
-                actions[act_arms[0:(-rem_local_budget)]] = 0
-            elif rem_local_budget > num_neutral_arms:
-                # print("baka", end=" ")
-                # activate all neutral arms; recfity some arms that take passive actions;
-                actions[s2indices_fs[self.Sneu[0]]] = 1
-                pas_arms = np.where(np.all([actions == 0, cur_OL_set_mask], axis=0))[0]
-                actions[pas_arms[0:(rem_local_budget - num_neutral_arms)]] = 1
-            else:
-                actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
-            # elif self.rounding == "misocp":
-            #     assert rem_local_budget >= 0
-            #     assert rem_local_budget <= num_neutral_arms, "{}>{}".format(rem_local_budget, num_neutral_arms)
-            #     actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
+            ## the action rectification step below is not needed
+            # if rem_local_budget < 0:
+            #     # print("baka", end=" ")
+            #     # activate no neutral arms; rectify some arms that take active actions;
+            #     actions[s2indices_fs[self.Sneu[0]]] = 0
+            #     act_arms = np.where(np.all([actions == 1, cur_OL_set_mask], axis=0))[0]
+            #     actions[act_arms[0:(-rem_local_budget)]] = 0
+            # elif rem_local_budget > num_neutral_arms:
+            #     # print("baka", end=" ")
+            #     # activate all neutral arms; recfity some arms that take passive actions;
+            #     actions[s2indices_fs[self.Sneu[0]]] = 1
+            #     pas_arms = np.where(np.all([actions == 0, cur_OL_set_mask], axis=0))[0]
+            #     actions[pas_arms[0:(rem_local_budget - num_neutral_arms)]] = 1
             # else:
-            #     raise NotImplementedError
-            assert np.sum(actions[cur_OL_set]) == local_budget, "Error: {}!={}".format(np.sum(actions[cur_OL_set]), local_budget)
+            #     actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
+            assert (rem_local_budget >= 0) and (rem_local_budget <= num_neutral_arms), "something is wrong, Optimal Local Control is not feasible"
+            actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
+            assert np.sum(actions[cur_OL_set]) == local_budget, "Local budget inconsistent: {}!={}".format(np.sum(actions[cur_OL_set]), local_budget)
 
         # for this version, just use ID policy for the actions outside the OL set
         non_OL_set_mask = np.ones((self.N,))
@@ -1685,24 +1691,128 @@ class TwoSetPolicy(object):
         for state in self.sspa:
             ideal_actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
         actions[non_OL_set] = ideal_actions[non_OL_set]
-        # rectification
         num_requests = np.sum(actions)
         if num_requests > budget:
             indices_request = np.where(actions*non_OL_set_mask)[0]
             # sort by ID
             indices_request = np.sort(indices_request)
+            assert (num_requests - budget) <= len(indices_request)
             request_ignored = indices_request[(-int(num_requests - budget)):]
             actions[request_ignored] = 0
         elif num_requests < budget:
             indices_no_request = np.where((1-actions)*non_OL_set_mask)[0]
             # sort by ID
             indices_no_request = np.sort(indices_no_request)
+            assert (budget - num_requests) <= len(indices_no_request)
             no_request_pulled = indices_no_request[(-int(budget - num_requests)):]
             actions[no_request_pulled] = 1
         else:
             pass
-        assert np.sum(actions) == budget, "{}!={}".format(np.sum(actions), budget)
+        assert np.sum(actions) == budget, "Global budget inconsistent: {}!={}".format(np.sum(actions), budget)
         return actions
+
+    def get_actions_with_EP_set(self, cur_states, cur_OL_set, last_EP_set):
+        budget = round(self.N * self.act_frac)
+
+        s2indices = {state:None for state in self.sspa}
+        for state in self.sspa:
+            s2indices[state] = np.where(cur_states == state)[0]
+
+        actions = np.zeros((self.N,), dtype=np.int64)
+        if len(cur_OL_set) > 0:
+            local_exp_budget = len(cur_OL_set) * self.act_frac
+            random_bit = np.random.binomial(1, local_exp_budget - int(local_exp_budget))
+            local_budget = int(local_exp_budget) + random_bit
+
+            s2indices_fs = {state:None for state in self.sspa}
+            cur_OL_set_mask = np.zeros((self.N,))
+            cur_OL_set_mask[cur_OL_set] = 1
+            # count the indices of arms in each state
+            for state in self.sspa:
+                s2indices_fs[state] =  np.where(np.all([cur_states == state, cur_OL_set_mask], axis=0))[0]
+                # choose actions by randomized rounding
+                if state in self.Sempty:
+                    expected_act_count = self.policy[state, 1] * len(s2indices_fs[state])
+                    p_round = expected_act_count - int(expected_act_count)
+                    act_count = int(expected_act_count) + np.random.binomial(1, p_round)
+                    actions[s2indices_fs[state][0:act_count]] = 1
+                elif state in self.Sneu:
+                    continue
+                else:
+                    if self.policy[state, 1] > 0.5: # fluid active state
+                        actions[s2indices_fs[state]] = 1
+                    else:
+                        actions[s2indices_fs[state]] = 0
+                # print("state={}, y(s,1)={:.02}, mu(s)={:.02}, num arms={}, num activations={}".format(state, self.y[state,1], self.state_probs[state], len(s2indices_fs[state]), sum(actions[s2indices_fs[state]])))
+            # print()
+            rem_local_budget = local_budget - np.sum(actions)
+            num_neutral_arms = len(s2indices_fs[self.Sneu[0]])
+            assert (rem_local_budget >= 0) and (rem_local_budget <= num_neutral_arms), "something is wrong, Optimal Local Control is not feasible"
+            actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
+            assert np.sum(actions[cur_OL_set]) == local_budget, "Local budget inconsistent: {}!={}".format(np.sum(actions[cur_OL_set]), local_budget)
+
+        if len(cur_OL_set) == self.N:
+            assert np.sum(actions) == budget, "Global budget inconsistent: {}!={}".format(np.sum(actions), budget)
+            return actions, np.array([])
+
+        non_OL_set_mask = np.ones((self.N,))
+        if len(cur_OL_set) > 0:
+            non_OL_set_mask[cur_OL_set] = 0
+        last_EP_set_mask = np.zeros((self.N,))
+        if len(last_EP_set) > 0:
+            last_EP_set_mask[last_EP_set] = 1
+        target_EP_size = max(int(self.beta.value*(self.N-len(cur_OL_set)))-1,0)
+        temp_EP_set_mask = last_EP_set_mask * non_OL_set_mask
+        cur_EP_set = np.where(temp_EP_set_mask)[0]
+        if target_EP_size > len(cur_EP_set):
+            new_arms_into_EP = np.where((1-temp_EP_set_mask) * non_OL_set_mask)[0][0:(target_EP_size -len(cur_EP_set))]
+            cur_EP_set = np.concatenate([cur_EP_set, new_arms_into_EP])
+        elif target_EP_size < len(cur_EP_set):
+            cur_EP_set = cur_EP_set[0:target_EP_size]
+
+        # determine the actions for arms in the EP set, using Exact Proportional Control
+        cur_EP_set_mask = np.zeros((self.N,))
+        cur_EP_set_mask[cur_EP_set] = 1
+        s2indices_ep = {state:None for state in self.sspa}
+        for state in self.sspa:
+            s2indices_ep[state] =  np.where(np.all([cur_states == state, cur_EP_set_mask], axis=0))[0]
+            exp_act_count = len(s2indices_ep[state]) * self.policy[state,1]
+            act_count = int(exp_act_count) + np.random.binomial(1, exp_act_count-int(exp_act_count))
+            actions[s2indices_ep[state][0:act_count]] = 1
+            actions[s2indices_ep[state][act_count:]] = 0
+
+        if len(cur_OL_set) + len(cur_EP_set) == self.N:
+            assert np.sum(actions) == budget, "Global budget inconsistent: {}!={}".format(np.sum(actions), budget)
+            return actions, cur_EP_set
+
+        # determine the actions for arms not in OL set or EP set
+        ideal_actions = np.zeros((self.N,))
+        for state in self.sspa:
+            ideal_actions[s2indices[state]] = np.random.choice(self.aspa, size=len(s2indices[state]), p=self.policy[state])
+        non_OL_EP_set_mask = non_OL_set_mask * (1-cur_EP_set_mask)
+        non_OL_EP_set = np.where(non_OL_EP_set_mask)[0]
+        actions[non_OL_EP_set] = ideal_actions[non_OL_EP_set]
+        num_requests = np.sum(actions)
+        if num_requests > budget:
+            indices_request = np.where(actions*non_OL_EP_set_mask)[0]
+            # sort by ID
+            indices_request = np.sort(indices_request)
+            assert (num_requests - budget) <= len(indices_request)
+            request_ignored = indices_request[(-int(num_requests - budget)):]
+            actions[request_ignored] = 0
+        elif num_requests < budget:
+            indices_no_request = np.where((1-actions)*non_OL_EP_set_mask)[0]
+            # sort by ID
+            indices_no_request = np.sort(indices_no_request)
+            assert (budget - num_requests) <= len(indices_no_request)
+            no_request_pulled = indices_no_request[(-int(budget - num_requests)):]
+            actions[no_request_pulled] = 1
+        else:
+            pass
+        assert np.sum(actions) == budget, "Global budget inconsistent: {}!={}".format(np.sum(actions), budget)
+        return actions, cur_EP_set
+
+
 
 def states_to_scaled_state_counts(sspa_size, N, states):
     scaled_state_counts = np.zeros((sspa_size,))

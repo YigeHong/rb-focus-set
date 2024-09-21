@@ -1,5 +1,6 @@
 import numpy as np
 
+import rb_settings
 from rb_settings import *
 from discrete_RB import *
 from matplotlib import pyplot as plt
@@ -63,11 +64,13 @@ def search_and_store_unstable_examples():
     make_scatter_plot = False
     plot_subopt_cdf = False
     save_subopt_examples = False
+    save_mix_examples = True
     unichain_threshold = 0.95
     plot_sa_hitting_time = False
     plot_sa_hitting_time_vs_opt = False
-    find_almost_unstable_examples = True
-    save_almost_unstable_examples = True
+    find_almost_unstable_examples = False
+    save_almost_unstable_examples = False
+    update_database = False
     ## simulation settings
     N = 500
     simu_thousand_steps = 20 # simulate 1000*simu_thousand_steps many time steps
@@ -287,7 +290,7 @@ def search_and_store_unstable_examples():
         if i >= simulate_up_to_ith:
             continue
         if (setting.local_stab_eigval > 1) and (setting.unichain_eigval < 1):
-            print("the {}-th example is locally unstable".format(i))
+            # print("the {}-th example is locally unstable".format(i))
             if np.any(setting.y[:,1]+setting.y[:,0]<1e-7):
                 print(setting.y[:,1]+setting.y[:,0])
             # subopt_ratio = setting.avg_reward_lpp_mf_limit / setting.avg_reward_upper_bound
@@ -297,7 +300,7 @@ def search_and_store_unstable_examples():
             subopt_ratios.append(subopt_ratio)
             subopt_ratios_w.append(subopt_ratio_w)
             if (subopt_ratio < 0.9) and (subopt_ratio_w < 0.9):
-                print("In the {}-th example, lp index is {}-optimal, Whittle index is {}-suboptimal".format(i, subopt_ratio, subopt_ratio_w))
+                # print("In the {}-th example, lp index is {}-optimal, Whittle index is {}-suboptimal, rho(Phi)={}".format(i, subopt_ratio, subopt_ratio_w, setting.local_stab_eigval))
                 setting_save_path =  "setting_data/random-size-{}-{}-({})".format(sspa_size, distr_and_parameter, i)
                 # save suboptimal examples
                 if save_subopt_examples:
@@ -306,6 +309,36 @@ def search_and_store_unstable_examples():
                         print(setting_save_path+" exists!")
                     else:
                         save_bandit(setting, setting_save_path, {"alpha":alpha})
+                # find a nearly unstable and suboptimal example and save its interpolation with a stable example.
+                if save_mix_examples and (setting.local_stab_eigval < 1.05):
+                    print("In the {}-th example, lp index is {}-optimal, Whittle index is {}-suboptimal, rho(Phi)={}".format(i, subopt_ratio, subopt_ratio_w, setting.local_stab_eigval))
+                    stable_setting_index = 2270
+                    stable_setting = all_data["examples"][stable_setting_index]
+                    keep_ratio = 0.95
+                    new_setting = rb_settings.RandomExample(sspa_size, distr, parameters=[alpha])
+                    new_setting.distr = "mix"
+                    new_setting.trans_tensor = keep_ratio*setting.trans_tensor + (1-keep_ratio)*stable_setting.trans_tensor
+                    new_setting.reward_tensor = keep_ratio*setting.reward_tensor + (1-keep_ratio)*stable_setting.reward_tensor
+                    new_setting.suggest_act_frac = keep_ratio*setting.suggest_act_frac + (1-keep_ratio)*stable_setting.suggest_act_frac
+                    new_setting.suggest_act_frac = int(100*new_setting.suggest_act_frac) / 100
+                    result = compute_P_and_Phi_eigvals(new_setting)
+                    if result is None:
+                        print("{}({})+{}({}) has ambiguous stability".format(keep_ratio, i, 1-keep_ratio, stable_setting_index))
+                    else:
+                        analyzer = result[0]
+                        new_setting.avg_reward_upper_bound = analyzer.opt_value
+                        new_setting.y = analyzer.y.copy
+                        new_setting.lp_priority = analyzer.solve_LP_Priority(verbose=False)
+                        new_setting.whittle_priority = analyzer.solve_whittles_policy()
+                        new_setting.unichain_eigval = result[1]
+                        new_setting.local_stab_eigval = result[2]
+                        print("{}({})+{}({}): upper bound={}, unichain_eigval={}, rho(Phi)={}".format(keep_ratio, i, 1-keep_ratio, stable_setting_index,
+                                                        new_setting.avg_reward_upper_bound, new_setting.unichain_eigval, new_setting.local_stab_eigval))
+                        setting_save_path = "setting_data/mix-random-size-{}-{}-({})-({})-ratio-{}".format(sspa_size, distr_and_parameter, i, stable_setting_index, keep_ratio)
+                        if (new_setting.local_stab_eigval < 1) and (new_setting.local_stab_eigval > 0.9):
+                            save_bandit(new_setting, setting_save_path, None)
+
+
     print("{} examples are locally unstable".format(len(subopt_ratios)))
 
     ## visualize percentage of subopt examples
@@ -535,14 +568,17 @@ def search_and_store_unstable_examples():
         # plt.legend()
         # plt.show()
 
-    ## save data
-    print("saving data... do not quit...")
-    with open(file_path, "wb") as f:
-        pickle.dump(all_data, f)
-    with open(simu_file_path, "wb") as f:
-        pickle.dump(simu_data, f)
-    with open(simu_ftva_file_path, "wb") as f:
-        pickle.dump(simu_ftva_data, f)
+    if update_database:
+        ## save data
+        print("saving data... do not quit...")
+        with open(file_path, "wb") as f:
+            pickle.dump(all_data, f)
+        with open(simu_file_path, "wb") as f:
+            pickle.dump(simu_data, f)
+        with open(simu_ftva_file_path, "wb") as f:
+            pickle.dump(simu_ftva_data, f)
+    else:
+        print("no-update mode, example data not updated.")
     print("Finished!")
 
 
@@ -552,4 +588,10 @@ if __name__ == "__main__":
     np.set_printoptions(suppress=True)
     # for alpha in [0.05, 0.1, 0.2, 0.5, 1]:
         # count_locally_unstable(alpha)
-    search_and_store_unstable_examples()
+    # search_and_store_unstable_examples()
+
+    for i in range(4):
+        setting = rb_settings.RandomExample(sspa_size=8, distr="dirichlet", parameters=[1])
+        setting_path = "setting_data/random-size-8-uniform-({})".format(i)
+        save_bandit(setting, setting_path, None)
+

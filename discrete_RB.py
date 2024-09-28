@@ -302,7 +302,7 @@ class SingleArmAnalyzer(object):
         ## iterates: mu^k_i, alpha^k_i, pi^k
         ## they are computed in the order: mu^{k-1}_i, pi^k -> alpha^k_i(mu^{k-1}_min) -> mu^k_i -> pi^{k+1}
         ## mu_table[k, i] = mu^k_i, pi_table[k,i] = pi^k_i
-        mu_table = np.infty * np.ones((self.sspa_size, self.sspa_size))
+        mu_table = np.inf * np.ones((self.sspa_size, self.sspa_size))
         whittle_indices = np.nan * np.ones((self.sspa_size,))
         ## a deterministic single-armed policy for the lagrange relaxed problem; entries denote probability of activation
         pi = np.ones((self.sspa_size,))
@@ -312,8 +312,8 @@ class SingleArmAnalyzer(object):
         Delta[:,0] = 0
         for k in range(self.sspa_size):
             if k == 0:
-                prev_mu_min = -np.infty #self.MINPENALTY
-                alpha_mu_prev = np.infty * np.ones((self.sspa_size,))
+                prev_mu_min = -np.inf #self.MINPENALTY
+                alpha_mu_prev = np.inf * np.ones((self.sspa_size,))
             else:
                 prev_mu_min = cur_mu_min #np.min(mu_table[(k-1),:])
                 ## note that alpha^{pi^k}(mu^{k-1}) = alpha^{pi^{k-1}}(mu^{k-1})
@@ -345,7 +345,7 @@ class SingleArmAnalyzer(object):
                             # mu_table[k, i] = prev_mu_min +  alpha_pi[i] / (1-np.matmul(Delta[i,:].T, d_pi))
                             mu_table[k, i] = (delta[i] + np.matmul(Delta[i,:].T, v_pi_pure)) / (1-np.matmul(Delta[i,:].T, d_pi))
                         else:
-                            mu_table[k, i] = np.infty
+                            mu_table[k, i] = np.inf
             cur_mu_min = np.min(mu_table[k,:])
             # alpha_mu_k = alpha_pi  - (cur_mu_min - prev_mu_min) * (1 - np.matmul(Delta, d_pi))
             ## compute alpha^{pi_k}(mu^k)
@@ -358,8 +358,8 @@ class SingleArmAnalyzer(object):
                 # print(alpha_mu_k)
                 return -1
             ## return if cur_mu_min reach infty
-            if cur_mu_min == np.infty:
-                whittle_indices[pi] = np.infty
+            if cur_mu_min == np.inf:
+                whittle_indices[pi] = np.inf
                 return whittle_indices
             ## update policy pi from pi^k to pi^{k+1}
             deactivate_states = np.where(np.all([alpha_mu_k < self.EPS, alpha_mu_k > -self.EPS], axis=0))[0]
@@ -437,16 +437,16 @@ class SingleArmAnalyzer(object):
         # print("P0=", self.trans_tensor[:,0,:])
         # print("Ppibs=", self.Ppibs)
         if verbose:
-            print("Phi=", Phi)
+            # print("Phi=", Phi)
             print("moduli of Phi's eigenvalues=", moduli)
             print("spectral radius of Phi=", spec_rad)
             print("---------------------------")
         return Phi
 
-    def compute_U(self, abstol):
-        Phi = self.compute_Phi()
+    def compute_U(self, abstol, verbose=True):
+        Phi = self.compute_Phi(verbose)
         if np.max(np.abs(np.linalg.eigvals(Phi))) >= 1:
-            return np.infty, np.infty
+            return np.inf, np.inf
 
         Phi_power = np.eye(self.sspa_size)
         U = np.zeros((self.sspa_size, self.sspa_size))
@@ -1510,7 +1510,7 @@ class TwoSetPolicy(object):
         self.beta.value = min(act_frac, 1-act_frac)
 
     def compute_eta(self):
-        if (self.U is np.infty) or len(self.Sneu) != 1:
+        if (self.U is np.inf) or len(self.Sneu) != 1:
             return 0
 
         c_act_no_neu = self.policy[:,1].copy()
@@ -1527,31 +1527,34 @@ class TwoSetPolicy(object):
         constrs.append(cp.matmul(c_act_no_neu.T, x) >= self.act_frac)
         objective = cp.Minimize(f_local)
         problem = cp.Problem(objective, constrs)
-        problem.solve()
+        problem = solve_with_multiple_solvers(problem)
         if problem.status not in ["infeasible", "unbounded"]:
             eta_1 = f_local.value.copy()
         else:
-            eta_1 = np.infty
+            eta_1 = np.inf
         # solve the second problem
         constrs[-1] = cp.matmul(c_pass_no_neu.T, x) >= 1 - self.act_frac
         problem = cp.Problem(objective, constrs)
-        problem.solve()
+        problem = solve_with_multiple_solvers(problem)
         if problem.status not in ["infeasible", "unbounded"]:
             eta_2 = f_local.value.copy()
         else:
-            eta_2 = np.infty
+            eta_2 = np.inf
         eta = min(eta_1, eta_2)
         errfe = 2*np.sqrt(2*self.lam_U)*self.err_sempty
 
-        if ((eta_1 == np.infty) and ((self.act_frac - np.max(c_act_no_neu))*errfe/eta >= self.err_sempty)) or \
-        ((eta_2 == np.infty) and ((1 - self.act_frac - np.max(c_pass_no_neu))*errfe/eta >= self.err_sempty)):
+        if ((eta_1 == np.inf) and ((self.act_frac - np.max(c_act_no_neu))*errfe/eta >= self.err_sempty)) or \
+        ((eta_2 == np.inf) and ((1 - self.act_frac - np.max(c_pass_no_neu))*errfe/eta >= self.err_sempty)):
             eta = (1/np.sqrt(self.sspa_size)) * min(self.y[self.Sneu[0],1], self.y[self.Sneu[0],0])
-            errfe = self.err_sempty
+            # errfe = self.err_sempty
+            # todo:divide the np.sqrt(self.sspa_size) factor on 240923, to test if still 100% feasibility-ensuring;
+            #      if so, perf only improves, so no need to resimulate
+            errfe = self.err_sempty / np.sqrt(self.sspa_size)
 
         return eta, errfe
 
     def get_new_focus_set(self, cur_states, last_OL_set):
-        if (self.U is np.infty) or self.eta <= 0:
+        if (self.U is np.inf) or self.eta <= 0:
             return np.array([])
 
         states_fs = cur_states[last_OL_set]
@@ -1589,14 +1592,17 @@ class TwoSetPolicy(object):
                 constrs.append(cp.SOC(self.eta*self.m - self.errfe - self.errrd, self.U_sqrt @ (self.z - self.m*self.state_probs)))
                 objective = cp.Maximize(self.m)
                 problem = cp.Problem(objective, constrs)
-                problem.solve()
-                if problem.status in ["infeasible", "unbounded"]:
-                    # print("{}, choosing empty set".format(problem.status))
+                try:
+                    problem = solve_with_multiple_solvers(problem)
+                    if problem.status in ["infeasible", "unbounded"]:
+                        # print("{}, choosing empty set".format(problem.status))
+                        z_temp = np.zeros((self.sspa_size,))
+                    else:
+                        # print("{}, expanding".format(problem.status))
+                        z_temp = self.z.value.copy()
+                        z_temp = np.floor(self.N*z_temp) / self.N
+                except cp.SolverError:
                     z_temp = np.zeros((self.sspa_size,))
-                else:
-                    # print("{}, expanding".format(problem.status))
-                    z_temp = self.z.value.copy()
-                    z_temp = np.floor(self.N*z_temp) / self.N
             else:
                 raise NotImplementedError
         # then solve for the next OL set
@@ -1608,16 +1614,19 @@ class TwoSetPolicy(object):
             constrs.append(cp.SOC(self.eta*self.m - self.errfe - self.errrd, self.U_sqrt @ (self.z - self.m*self.state_probs)))
             objective = cp.Maximize(self.m)
             problem = cp.Problem(objective, constrs)
-            problem.solve()
-            if problem.status in ["infeasible", "unbounded"]:
-                # print("{}, choosing z_temp".format(problem.status))
+            try:
+                problem = solve_with_multiple_solvers(problem)
+                if problem.status in ["infeasible", "unbounded"]:
+                    # print("{}, choosing z_temp".format(problem.status))
+                    z_OL = z_temp
+                    #todo: somehow cvxpy often confuse infeasible with unbounded. It does not matter but still good to figure out why
+                    #
+                    # if problem.status == "unbounded":
+                    #     print("z_temp={}, s_count={}".format(z_temp,self.s_count_scaled.value))
+                else:
+                    z_OL = self.z.value.copy()
+            except cp.SolverError:
                 z_OL = z_temp
-                #todo: somehow cvxpy often confuse infeasible with unbounded. It does not matter but still good to figure out why
-                #
-                # if problem.status == "unbounded":
-                #     print("z_temp={}, s_count={}".format(z_temp,self.s_count_scaled.value))
-            else:
-                z_OL = self.z.value.copy()
         else:
             raise NotImplementedError
 
@@ -1761,7 +1770,9 @@ class TwoSetPolicy(object):
         last_EP_set_mask = np.zeros((self.N,))
         if len(last_EP_set) > 0:
             last_EP_set_mask[last_EP_set] = 1
-        target_EP_size = max(int(self.beta.value*(self.N-len(cur_OL_set)))-1,0)
+        # todo: after checking the proof on 240923, I it no longer necessary to minus one to target_EP_size. This should not
+        #       affect the simulation result too much.
+        target_EP_size = int(self.beta.value*(self.N-len(cur_OL_set)))
         temp_EP_set_mask = last_EP_set_mask * non_OL_set_mask
         cur_EP_set = np.where(temp_EP_set_mask)[0]
         if target_EP_size > len(cur_EP_set):
@@ -1865,3 +1876,24 @@ def drift_array_to_rgb_array(drift):
     rgb_array = rgb_array.reshape((-1,3))
     print(rgb_array.shape)
     return rgb_array
+
+def y2nondegeneracy(y):
+    Sneu = np.where(np.all(y > 1e-7, axis=1))
+    if len(Sneu) > 1:
+        return -1
+    elif len(Sneu) == 0:
+        return 0
+    else:
+        return min(y[Sneu[0],1], y[Sneu[0],0])
+
+def solve_with_multiple_solvers(problem):
+    try:
+        problem.solve(solver=cp.ECOS)
+    except cp.SolverError:
+        print("Solver error with ECOS, trying CLARABEL")
+        try:
+            problem.solve(solver=cp.CLARABEL, verbose=True)
+        except cp.SolverError:
+            print("Solver error with CLARABEL, trying SCS")
+            problem.solve(solver=cp.SCS, verbose=True)
+    return problem

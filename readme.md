@@ -9,10 +9,16 @@ Yige Hong, Qiaomin Xie, Yudong Chen, Weina Wang (2024).
 ## How to use 
 Python version and required packages:
 - python 3.10
-- numpy 1.24.2
-- matplotlib 3.7.1
 - cvxpy 1.3.1
+- numpy 1.24.2
+- scipy 1.10.1
+- matplotlib 3.7.1
 
+
+[//]: # (- numpy 2.1.1)
+[//]: # (- scipy 1.14.1)
+[//]: # (- matplotlib 3.9.2)
+[//]: # (- cvxpy 1.5.3)
 [//]: # (You can reproduce the Figures in the paper by running the python script `experiments.py`.)
 
 [//]: # ()

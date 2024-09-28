@@ -2,7 +2,7 @@ import numpy as np
 import pickle
 from discrete_RB import SingleArmAnalyzer
 from matplotlib import pyplot as plt
-
+import warnings
 
 class Gast20Example1(object):
     def __init__(self):
@@ -84,6 +84,11 @@ class RandomExample(object):
             P0 = np.random.uniform(0, 1, size=(self.sspa_size, self.sspa_size))
             P1 = np.random.uniform(0, 1, size=(self.sspa_size, self.sspa_size))
             R0 = np.random.uniform(0, 1, size=(self.sspa_size, ))
+            R1 = np.random.uniform(0, 1, size=(self.sspa_size, ))
+        elif distr == "uniform-simplex":
+            P0 = np.random.dirichlet([1]*sspa_size, self.sspa_size)
+            P1 = np.random.dirichlet([1]*sspa_size, self.sspa_size)
+            R0 = np.zeros((self.sspa_size,))
             R1 = np.random.uniform(0, 1, size=(self.sspa_size, ))
         # elif distr == "uniform-symR":
         #     P0 = np.random.uniform(0, 1, size=(self.sspa_size, self.sspa_size))
@@ -298,7 +303,7 @@ class ConveyorExample(object):
     We left half all require 0, and right half all require 1
     0 0 0 0 0 1 1 1 1 1
     """
-    def __init__(self, sspa_size, probs_L, probs_R, action_script, suggest_act_frac):
+    def __init__(self, sspa_size, probs_L, probs_R, action_script, suggest_act_frac, r_disturb=None):
         """
         :param sspa_size: total number of states of the system. The left half requires 0, the right half requires 1
         :param probs_L: prob of moving left if take the wrong action
@@ -341,9 +346,11 @@ class ConveyorExample(object):
         # if take the correct action in the last state, receive reward 1 with the probability of moving to the right
         last_index = self.sspa_size - 1
         self.reward_tensor[last_index, self.action_script[last_index]] = 1 * self.probs_R[last_index]
+        if r_disturb is not None:
+            self.reward_tensor[0,1] = r_disturb
 
     @staticmethod
-    def get_parameters(name, sspa_size):
+    def get_parameters(name, sspa_size, nonindexable=False):
         """
         :param name:
         :param sspa_size: size of the mdp
@@ -351,23 +358,7 @@ class ConveyorExample(object):
         """
         assert sspa_size % 2 == 0, "state-space size should be an even number"
         half_size = int(sspa_size / 2)
-        if name == "eg4unif-tb":
-            """
-            The purpose of this counterexample is to let DRP with uniform tie breaking perform poorly
-            To do this, 
-            action script 1 1 1 1 0 0 0 (or it can be longer)
-            keep probs_R[i] constant for each i for convenience
-            probs_L should be strictly greater than probs_R on the place where the action script is 1, so that there is a drift to left
-            """
-            # each point has a 1/6 prob of moving to the right if the correct action is chosen
-            probs_R = np.ones((sspa_size, )) / 6
-            # define the prob of moving to the left.
-            probs_L = np.ones((sspa_size, )) * 0.9
-            probs_L[0] = 0.0   # reflection prob is zero
-            # produce the action script, which defines the "right" action at each state
-            action_script = np.zeros((sspa_size, ), dtype=np.int64)
-            action_script[:half_size] = 1
-        elif name == "eg4action-gap-tb":
+        if name == "eg4action-gap-tb":
             """
             The purpose of this counterexample is to let the LP-Priority perform poorly 
             To do this, 
@@ -381,39 +372,83 @@ class ConveyorExample(object):
             probs_L[0] = 0.0 # 1/3 - 0.01
             action_script = np.zeros((sspa_size, ), dtype=np.int64)
             action_script[:half_size] = 1
-        elif name == "eg4archive1":
-            """
-            The following set of parameters are producing ridiculous outcomes: 
-            LP performance suddenly jumps from 0 to optimal when N=1000
-            To reproduce, use random seed 0; 
-            initialize the arm evenly using the code
-            for i in range(N):
-                init_states[i] = i % sspa_size
-            """
-            probs_R = np.ones((sspa_size, )) / 6
-            probs_L = np.ones((sspa_size, )) * 0.9
-            probs_L[0] = 1.0
-            # produce the action script
+            tries_in_a_loop = 1 / probs_R
+            suggest_act_frac = np.sum(tries_in_a_loop * action_script) / np.sum(tries_in_a_loop)
+            if nonindexable:
+                r_disturb = 0.04 / sspa_size
+                assert r_disturb < 11*suggest_act_frac / (50*sspa_size)
+            else:
+                r_disturb = 0
+        elif name == "arbitrary-length":
+            probs_R = np.ones((sspa_size, )) * 0.1
+            probs_L = np.ones((sspa_size, )) * (0.5 - 0.1*np.arange(0, sspa_size)/sspa_size)
+            probs_L[1] = 1.0
+            probs_L[0] = 0.0
             action_script = np.zeros((sspa_size, ), dtype=np.int64)
             action_script[:half_size] = 1
-        elif name == "eg4archive2":
-            """
-            this is a setting that makes LP bad if initialized properly
-            sspa = 8
-            do not fix dual variable
-            """
-            probs_R = np.ones((sspa_size, )) / 6
-            probs_L = np.ones((sspa_size, )) / (2+0.1*sspa_size) # this is a bug, sspa_size should be arange(0, sspa_size)
-            probs_L[1] = 1/2 #1/6 - 0.01
-            probs_L[0] = 1/3 #1/3 - 0.01
-            action_script = np.zeros((sspa_size, ), dtype=np.int64)
-            action_script[:half_size] = 1
+            # we choose it to be slightly less than 0.5
+            suggest_act_frac = 0.4
+            if nonindexable:
+                r_disturb = 0.04 / sspa_size
+                assert r_disturb < 11*suggest_act_frac / (50*sspa_size)
+            else:
+                r_disturb = 0
         else:
-            raise NotImplementedError
-        # produce the suggested activation fraction. It should be just enough to let the arm always move to the right
-        tries_in_a_loop = 1 / probs_R
-        suggest_act_frac = np.sum(tries_in_a_loop * action_script) / np.sum(tries_in_a_loop)
-        return probs_L, probs_R, action_script, suggest_act_frac
+            warnings.warn("The RB setting {} is depricated.".format(name))
+            if name == "eg4archive1":
+                """
+                The following set of parameters are producing ridiculous outcomes: 
+                LP performance suddenly jumps from 0 to optimal when N=1000
+                To reproduce, use random seed 0; 
+                initialize the arm evenly using the code
+                for i in range(N):
+                    init_states[i] = i % sspa_size
+                """
+                probs_R = np.ones((sspa_size, )) / 6
+                probs_L = np.ones((sspa_size, )) * 0.9
+                probs_L[0] = 1.0
+                # produce the action script
+                action_script = np.zeros((sspa_size, ), dtype=np.int64)
+                action_script[:half_size] = 1
+                tries_in_a_loop = 1 / probs_R
+                suggest_act_frac = np.sum(tries_in_a_loop * action_script) / np.sum(tries_in_a_loop)
+            elif name == "eg4archive2":
+                """
+                this is a setting that makes LP bad if initialized properly
+                sspa = 8
+                do not fix dual variable
+                """
+                probs_R = np.ones((sspa_size, )) / 6
+                probs_L = np.ones((sspa_size, )) / (2+0.1*sspa_size) # this is a bug, sspa_size should be arange(0, sspa_size)
+                probs_L[1] = 1/2 #1/6 - 0.01
+                probs_L[0] = 1/3 #1/3 - 0.01
+                action_script = np.zeros((sspa_size, ), dtype=np.int64)
+                action_script[:half_size] = 1
+                tries_in_a_loop = 1 / probs_R
+                suggest_act_frac = np.sum(tries_in_a_loop * action_script) / np.sum(tries_in_a_loop)
+            elif name == "eg4unif-tb":
+                """
+                The purpose of this counterexample is to let DRP with uniform tie breaking perform poorly
+                To do this, 
+                action script 1 1 1 1 0 0 0 (or it can be longer)
+                keep probs_R[i] constant for each i for convenience
+                probs_L should be strictly greater than probs_R on the place where the action script is 1, so that there is a drift to left
+                """
+                # each point has a 1/6 prob of moving to the right if the correct action is chosen
+                probs_R = np.ones((sspa_size, )) / 6
+                # define the prob of moving to the left.
+                probs_L = np.ones((sspa_size, )) * 0.9
+                probs_L[0] = 0.0   # reflection prob is zero
+                # produce the action script, which defines the "right" action at each state
+                action_script = np.zeros((sspa_size, ), dtype=np.int64)
+                action_script[:half_size] = 1
+                # produce the suggested activation fraction. It should be just enough to let the arm always move to the right
+                tries_in_a_loop = 1 / probs_R
+                suggest_act_frac = np.sum(tries_in_a_loop * action_script) / np.sum(tries_in_a_loop)
+            else:
+                raise NotImplementedError
+            r_disturb = 0
+        return probs_L, probs_R, action_script, suggest_act_frac, r_disturb
 
 
 class NonSAExample(object):
@@ -623,7 +658,7 @@ def generate_Geo_random():
     #     print("lambda_W = ", np.linalg.norm(W, ord=2))
     #     U = analyzer.compute_U(abstol=1e-10)[0]
     #     print("U=\n", U)
-    #     if U is not np.infty:
+    #     if U is not np.inf:
     #         print("spectral norm of U=", np.max(np.abs(np.linalg.eigvals(U))))
 
     sspa_size = 16
@@ -652,7 +687,7 @@ def generate_Geo_random():
         print("lambda_W = ", np.linalg.norm(W, ord=2))
         U = analyzer.compute_U(abstol=1e-10)[0]
         print("U=\n", U)
-        if U is not np.infty:
+        if U is not np.inf:
             print("spectral norm of U=", np.max(np.abs(np.linalg.eigvals(U))))
 
 

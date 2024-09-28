@@ -46,14 +46,6 @@ def compute_mf_reward(setting, init_state_fracs, priority, T):
 def analyze_new_reward_modif(setting, direction):
     pass
 
-def y2nondegeneracy(y):
-    Sneu = np.where(np.all(y > 1e-7, axis=1))
-    if len(Sneu) > 1:
-        return -1
-    elif len(Sneu) == 0:
-        return 0
-    else:
-        return min(y[Sneu[0],1], y[Sneu[0],0])
 
 
 def search_and_store_unstable_examples():
@@ -590,8 +582,10 @@ if __name__ == "__main__":
         # count_locally_unstable(alpha)
     # search_and_store_unstable_examples()
 
-    for i in range(4):
+    np.random.seed(42)
+    for i in range(8):
         setting = rb_settings.RandomExample(sspa_size=8, distr="dirichlet", parameters=[1])
         setting_path = "setting_data/random-size-8-uniform-({})".format(i)
-        save_bandit(setting, setting_path, None)
+        if i >= 4:
+            save_bandit(setting, setting_path, None)
 

@@ -2,14 +2,13 @@ import numpy as np
 import cvxpy as cp
 import scipy
 
-import understand_assumptions
 from discrete_RB import *
 import rb_settings
 import time
 import pickle
 from matplotlib import pyplot as plt
-import matplotlib as mpl
 import os
+import multiprocessing as mp
 
 
 def run_policies(setting_name, policy_name, init_method, T, setting_path=None, Ns=None, skip_N_below=None, no_run=False, debug=False, note=None):
@@ -22,26 +21,31 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
     elif setting_name == "non-sa":
         setting = rb_settings.NonSAExample()
     elif setting_name == "eight-states-045":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+        probs_L, probs_R, action_script, suggest_act_frac, _ = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
         setting.suggest_act_frac = 0.45
     elif setting_name == "new-eight-states":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+        probs_L, probs_R, action_script, suggest_act_frac, _ = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
         setting.reward_tensor[0,1] = 0.02
     elif setting_name == "new2-eight-states":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+        probs_L, probs_R, action_script, suggest_act_frac, _ = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
         setting.reward_tensor[0,1] = 0.1/30
     elif setting_name == "new2-eight-states-045":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+        probs_L, probs_R, action_script, suggest_act_frac, _ = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
         setting.reward_tensor[0,1] = 0.1/30
         setting.suggest_act_frac = 0.45
+    elif setting_name.startswith("conveyor-belt-nd"):
+        sspa_size = int(setting_name.split("-")[-1])
+        probs_L, probs_R, action_script, suggest_act_frac, r_disturb = rb_settings.ConveyorExample.get_parameters(
+            "arbitrary-length", sspa_size, nonindexable=True)
+        setting = rb_settings.ConveyorExample(sspa_size, probs_L, probs_R, action_script, suggest_act_frac, r_disturb=r_disturb)
     elif setting_name == "non-sa-big1":
         setting = rb_settings.BigNonSAExample("v1")
     elif setting_name == "non-sa-big2":
@@ -67,9 +71,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     y = analyzer.solve_lp()[1]
-    print("min(y(sneu,1), y(sneu,0)) = ", understand_assumptions.y2nondegeneracy(y))
+    print("min(y(sneu,1), y(sneu,0)) = ", y2nondegeneracy(y))
     W = analyzer.compute_W(abstol=1e-10)[0]
-    # print("W=", W)
     print("2*lambda_W = ", 2*np.linalg.norm(W, ord=2))
     if setting_name == "eight-states":
         priority_list = analyzer.solve_LP_Priority(fixed_dual=0)
@@ -79,8 +82,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
     whittle_priority = analyzer.solve_whittles_policy()
     print("Whittle priority=", whittle_priority)
     U = analyzer.compute_U(abstol=1e-10)[0]
-    # print("U=\n", U)
-    if U is not np.infty:
+    if U is not np.inf:
         print("spectral norm of U=", np.max(np.abs(np.linalg.eigvals(U))))
     else:
         print("U diverges, locally unstable")
@@ -105,6 +107,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
             assert setting_and_data["setting_code"] == setting_name
             assert setting_and_data["init_method"] == init_method
 
+    tic = time.time()
     reward_array = np.nan * np.empty((num_reps, len(Ns)))
     full_reward_trace = {}
     full_ideal_acts_trace = {}
@@ -119,7 +122,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
             elif init_method == "same":
                 init_states = np.zeros((N,))
             elif init_method == "bad":
-                init_states = np.random.choice(np.arange(4, 8), N, replace=True)
+                init_states = np.random.choice(np.arange(round(setting.sspa_size/2), setting.sspa_size), N, replace=True)
             else:
                 raise NotImplementedError
             rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
@@ -267,6 +270,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                 for t in range(T):
                     cur_states = rb.get_states()
                     actions = policy.get_actions(cur_states)
+                    if debug:
+                        print(states_to_scaled_state_counts(setting.sspa_size, N, cur_states))
                     assert np.sum(actions) == round(act_frac*N), "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
@@ -360,6 +365,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     }
                 with open(data_file_name, 'wb') as f:
                     pickle.dump(setting_and_data, f)
+    print("time for running one policy with T={} and {} data points is {}".format(T, len(Ns), time.time()-tic))
+
 
 
 def figure_from_multiple_files():
@@ -464,7 +471,7 @@ def figure_from_multiple_files_no_CI():
     """
     # setting names in the unichain aperiodicity paper: ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]
     # setting names in the exponential paper ["random-size-3-uniform-({})".format(i) for i in range(5)]
-    settings = ["random-size-3-uniform-({})".format(i) for i in [2]] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4116]] # [4116, 2667] [2270, 9632]   #["random-size-3-uniform-({})".format(i) for i in range(0,5)] #["new2-eight-states-045"] #
+    settings = ["random-size-8-uniform-({})".format(i) for i in range(4)] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4116]] # [4116, 2667] [2270, 9632]   #["random-size-3-uniform-({})".format(i) for i in range(0,5)] #["new2-eight-states-045"] #
     policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id", "twoset-v1", "twoset-faithful"]
     skip_policies =  ["ftva", "setexp", "setexp-priority","twoset-v1"] #, "lppriority", "whittle", "id"]
     linestyle_str = ["-.", "-", "--", "-.", "--", "-", "-", "-."]
@@ -560,13 +567,13 @@ def figure_from_multiple_files_no_CI():
         plt.show()
 
 
-def figure_from_multiple_files_flexible_N_no_CI():
+def figure_from_multiple_files_flexible_N(note=None):
     """
     Plotting function that reads data files with Ns to combine into one plot.
     """
     # setting names in the unichain aperiodicity paper: ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]
     # setting names in the exponential paper ["random-size-3-uniform-({})".format(i) for i in range(5)]
-    settings = ["random-size-8-uniform-({})".format(i) for i in range(0,4)]  # ["mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i) for i in [1436, 6265]] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4339]]#, 4149, 4116, 2667, 2270, 9632]]   #["random-size-3-uniform-({})".format(i) for i in range(0,5)] #["new2-eight-states-045"]
+    settings = ["random-size-8-uniform-({})".format(i) for i in [1]]  #["new2-eight-states-045", "conveyor-belt-nd-12"]  # ["mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i) for i in [1436, 6265]] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4339]]#, 4149, 4116, 2667, 2270, 9632]]
     policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id", "twoset-v1", "twoset-faithful"]
     skip_policies =  ["setexp", "setexp-priority","twoset-v1"]
     linestyle_str = ["-.", "-", "--", "-.", "--", "-", "-", "-."]
@@ -575,46 +582,68 @@ def figure_from_multiple_files_flexible_N_no_CI():
     policy2label = {"id":"ID policy", "setexp":"Set expansion", "lppriority":"LP index policy",
                     "whittle":"Whittle index policy", "ftva":"FTVA", "setexp-priority":"Set expansion (with LP index)",
                     "twoset-v1":"Two-set v1", "twoset-faithful":"Two-set policy"}
-    target_num_batches = 20
-    mode = "fixed" # "fixed", or "range"
+    setting2truncate = {"random-size-8-uniform-(0)": 10**(-6), "random-size-8-uniform-(1)": 10**(-7),
+                        "random-size-8-uniform-(2)": 10**(-6), "random-size-8-uniform-(3)": 10**(-6)}
+    truncate_level_default = 10**(-7)
+    plot_CI = True
+    batch_size = 8000
+    # mode = "fixed" # "fixed", or "range"
     N_range = [200, 10000] # closed interval
-    # Ns = list(range(2000,20000,1000))
     init_method = "random"
-    mode = "log-opt-gap" # "opt-ratio" or "total-opt-gap" or "log-opt-gap"
+    mode = "log-opt-gap-ratio" # "opt-ratio" or "total-opt-gap-ratio" or "log-opt-gap-ratio"
+    file_dir = "fig_data" #"fig_data_server_0928"
 
-    avg_rewards = {}
+    all_batch_means = {}
     for setting_name in settings:
         for policy_name in policies:
             if policy_name in skip_policies:
                 continue
             file_prefix = "{}-{}".format(setting_name, policy_name)
-            file_dir = "fig_data"
-            file_names = [file_name for file_name in os.listdir(file_dir)
-                          if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])]
+            if note is None:
+                file_names = [file_name for file_name in os.listdir(file_dir)
+                              if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])]
+            else:
+                file_names = [file_name for file_name in os.listdir(file_dir)
+                              if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])
+                              and (note in file_name.split("-")[(-1):])]
             print("{}:{}".format(file_prefix, file_names))
             if len(file_names) == 0:
                 if policy_name == "whittle":
                     continue
                 else:
                     raise FileNotFoundError("no file that match the prefix {} and init_method = {}".format(file_prefix, init_method))
-            N2reward = {}
+            N2batch_means = {}
+            N_longest_T = {} # only plot with the longest T; N_longest_T helps identifying the file with longest T
             for file_name in file_names:
                 with open(os.path.join(file_dir, file_name), 'rb') as f:
                     setting_and_data = pickle.load(f)
                     for i, N in enumerate(setting_and_data["Ns"]):
                         if (N < N_range[0]) or (N > N_range[1]):
                             continue
-                        if N in N2reward:
-                            N2reward[N]["rewards"].extend(setting_and_data["reward_array"][:,i])
-                            N2reward[N]["Ts"].extend([setting_and_data["T"]]*num_reps)
+                        if (i, N) not in setting_and_data["full_reward_trace"]:
+                            print("N={} not available in {}".format(N, file_name))
+                            continue
+                        # if (setting_name == "random-size-8-uniform-(1)") and (not file_name.split("-")[-1].startswith("Long")) and ():
+                            # some special handling of this simulation data setting, do not use short data
+                            # pass
+                        if N not in N2batch_means:
+                            N2batch_means[N] = []
+                            N_longest_T[N] = 0
+                        if N_longest_T[N] > setting_and_data["T"]:
+                            continue
+                        elif N_longest_T[N] == setting_and_data["T"]:
+                            print(setting_name, N, "appending data from ", file_name)
+                            for t in range(0, setting_and_data["T"], batch_size):
+                                N2batch_means[N].append(np.mean(setting_and_data["full_reward_trace"][(i,N)][t:(t+batch_size)]))
                         else:
-                            N2reward[N] = {"Ts":[], "rewards":[], "average":0}  # T, and avg reward
-                            num_reps = len(setting_and_data["reward_array"][:,i])
-                            N2reward[N]["rewards"].extend(setting_and_data["reward_array"][:,i])
-                            N2reward[N]["Ts"].extend([setting_and_data["T"]]*num_reps)
-            for N in N2reward:
-                N2reward[N]["average"] = np.sum(np.array(N2reward[N]["Ts"]) * np.array(N2reward[N]["rewards"])) / np.sum(np.array(N2reward[N]["Ts"]))
-            avg_rewards[(setting_name,policy_name)] = N2reward
+                            N_longest_T[N] = setting_and_data["T"]
+                            N2batch_means[N] = []
+                            print(setting_name, N, "replaced with data from ", file_name)
+                            for t in range(0, setting_and_data["T"], batch_size):
+                                N2batch_means[N].append(np.mean(setting_and_data["full_reward_trace"][(i,N)][t:(t+batch_size)]))
+            for N in N2batch_means:
+                N2batch_means[N] = np.array(N2batch_means[N])
+            all_batch_means[(setting_name,policy_name)] = N2batch_means
 
     for setting_name in settings:
         if setting_name == "eight-states":
@@ -625,55 +654,100 @@ def figure_from_multiple_files_flexible_N_no_CI():
             upper_bound = 1
         else:
             file_prefix = "{}-{}".format(setting_name, "twoset-faithful")
-            file_dir = "fig_data"
             file_names = [file_name for file_name in os.listdir(file_dir)
                           if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])]
-            with open(os.path.join("fig_data", file_names[0]), 'rb') as f:
+            with open(os.path.join(file_dir, file_names[0]), 'rb') as f:
                 setting_and_data = pickle.load(f)
                 upper_bound = setting_and_data["upper bound"]
+        if setting_name in setting2truncate:
+            truncate_level = setting2truncate[setting_name]
+        else:
+            truncate_level = truncate_level_default
         if mode == "opt-ratio":
             plt.plot([N_range[0], N_range[1]], np.array([1, 1]), label="Upper bound", linestyle="--", color="k")
+        max_value_for_ylim = 0
         for i, policy_name in enumerate(policies):
-            if (policy_name == "whittle") and ((setting_name, policy_name) not in avg_rewards):
+            if (policy_name == "whittle") and ((setting_name, policy_name) not in all_batch_means):
                 continue
             if policy_name in skip_policies:
                 continue
             else:
                 Ns_local = []
                 avg_rewards_local = []
-                for N in avg_rewards[(setting_name, policy_name)]:
+                yerrs_local = []
+                cur_policy_batch_means = all_batch_means[(setting_name, policy_name)]
+                for N in cur_policy_batch_means:
                     Ns_local.append(N)
-                    avg_rewards_local.append(avg_rewards[(setting_name, policy_name)][N]["average"])
+                    avg_rewards_local.append(np.mean(cur_policy_batch_means[N]))
+                    yerrs_local.append(1.96 * np.std(cur_policy_batch_means[N]) / np.sqrt(len(cur_policy_batch_means[N])))
                 Ns_local = np.array(Ns_local)
                 avg_rewards_local = np.array(avg_rewards_local)
+                yerrs_local = np.array(yerrs_local)
                 sorted_indices = np.argsort(Ns_local)
                 Ns_local_sorted = Ns_local[sorted_indices]
                 avg_rewards_local_sorted = avg_rewards_local[sorted_indices]
-                print(Ns_local_sorted.shape)
-                print(avg_rewards_local_sorted.shape)
+                yerrs_local_sorted = yerrs_local[sorted_indices]
+                ## special handling of "random-size-8-uniform-(1)": remove data > 4000
+                if (setting_name == "random-size-8-uniform-(1)"):
+                    for j, N in enumerate(Ns_local_sorted):
+                        if policy_name in ["whittle", "lppriority"] and (N>4000):
+                            avg_rewards_local_sorted[j] = upper_bound
+                            yerrs_local_sorted[j] = 0
+                        elif (policy_name == "twoset-faithful") and (N > 8000):
+                            avg_rewards_local_sorted[j] = upper_bound
+                            yerrs_local_sorted[j] = 0
 
-                if mode == "opt-ratio":
-                    plt.plot(Ns_local_sorted, avg_rewards_local_sorted / upper_bound,
-                                 label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
-                                 marker=policy_markers[i], markersize=8, color=policy_colors[i])
-                elif mode == "total-opt-gap":
-                    plt.plot(Ns_local_sorted, (upper_bound - avg_rewards_local_sorted) * Ns_local_sorted,
-                                 label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
-                                 marker=policy_markers[i], markersize=8, color=policy_colors[i])
-                elif mode == "log-opt-gap":
-                    plt.plot(Ns_local_sorted, np.log10(upper_bound - avg_rewards_local_sorted),
-                                 label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
-                                 marker=policy_markers[i], markersize=8, color=policy_colors[i])
+                if not plot_CI:
+                    if mode == "opt-ratio":
+                        cur_curve = plt.plot(Ns_local_sorted, avg_rewards_local_sorted / upper_bound)
+                    elif mode == "total-opt-gap-ratio":
+                        cur_curve = plt.plot(Ns_local_sorted, (upper_bound - avg_rewards_local_sorted) * Ns_local_sorted / upper_bound)
+                        if policy_name not in ["lppriority", "whittle"]:
+                            max_value_for_ylim = max(max_value_for_ylim, np.max((upper_bound - avg_rewards_local_sorted) * Ns_local_sorted / upper_bound))
+                    elif mode == "log-opt-gap-ratio":
+                        cur_curve = plt.plot(Ns_local_sorted, np.log10((upper_bound - avg_rewards_local_sorted)/upper_bound))
+                    else:
+                        raise NotImplementedError
+                    cur_curve.set(label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
+                                marker=policy_markers[i], markersize=8, color=policy_colors[i])
                 else:
-                    raise NotImplementedError
+                    if mode == "opt-ratio":
+                        plt.errorbar(Ns_local_sorted, avg_rewards_local_sorted / upper_bound,
+                                     yerr=yerrs_local_sorted / upper_bound, label=policy2label[policy_name],
+                                     linewidth=1.5, linestyle=linestyle_str[i], marker=policy_markers[i], markersize=8,
+                                     color=policy_colors[i])
+                    elif mode == "total-opt-gap-ratio":
+                        Ns_include_zero = np.insert(Ns_local_sorted, 0, 0)
+                        ys = (upper_bound - avg_rewards_local_sorted) * Ns_local_sorted / upper_bound
+                        ys_include_zero = np.insert(ys, 0, 0)
+                        yerrs_include_zero = np.insert(yerrs_local_sorted * Ns_local_sorted / upper_bound, 0, 0)
+                        plt.errorbar(Ns_include_zero, ys_include_zero,
+                                     yerr=yerrs_include_zero, label=policy2label[policy_name],
+                                     linewidth=1.5, linestyle=linestyle_str[i], marker=policy_markers[i], markersize=8,
+                                     color=policy_colors[i])
+                        if policy_name not in ["lppriority", "whittle"]:
+                            max_value_for_ylim = max(max_value_for_ylim, np.max((upper_bound - avg_rewards_local_sorted+yerrs_local_sorted) * Ns_local_sorted / upper_bound))
+                    elif mode == "log-opt-gap-ratio":
+                        upper_CI_truncated = np.clip((upper_bound - avg_rewards_local_sorted + yerrs_local_sorted) / upper_bound, truncate_level, None)
+                        lower_CI_truncated = np.clip((upper_bound - avg_rewards_local_sorted - yerrs_local_sorted) / upper_bound, truncate_level, None)
+                        mean_truncated = np.clip((upper_bound - avg_rewards_local_sorted) / upper_bound, truncate_level, None)
+                        print(upper_CI_truncated, lower_CI_truncated)
+                        plt.errorbar(Ns_local_sorted, np.log10(mean_truncated),
+                                 yerr=np.stack([np.log10(mean_truncated) - np.log10(lower_CI_truncated), np.log10(upper_CI_truncated) - np.log10(mean_truncated)]),
+                                 label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
+                                 marker=policy_markers[i], markersize=8, color=policy_colors[i])
+                    else:
+                        raise NotImplementedError
+                # print("{} {}, yerrs/upper_bound = {}".format(setting_name, policy_name, yerrs_local_sorted / upper_bound))
+                # print("{} {}, relative error = {}".format(setting_name, policy_name, yerrs_local_sorted / np.clip(upper_bound - avg_rewards_local_sorted, 0, None) / np.log(10)))
             plt.xlabel("N", fontsize=14)
         plt.xticks(fontsize=14)
         if mode == "opt-ratio":
             plt.ylabel("Optimality ratio", fontsize=14)
-        elif mode == "total-opt-gap":
-            plt.ylabel("N * optimality gap ")
-        elif mode == "log-opt-gap":
-            plt.ylabel("Log_10 optimality gap")
+        elif mode == "total-opt-gap-ratio":
+            plt.ylabel("N * (Optimality gap ratio)", fontsize=14)
+        elif mode == "log-opt-gap-ratio":
+            plt.ylabel(r"$\log_{10}$(Optimality gap ratio)", fontsize=14)
         else:
             raise NotImplementedError
         plt.yticks(fontsize=14)
@@ -683,10 +757,17 @@ def figure_from_multiple_files_flexible_N_no_CI():
         if mode == "opt-ratio":
             # plt.savefig("figs3/{}-N{}-{}-{}.pdf".format(setting_name, Ns[0], Ns[-1], init_method))
             plt.savefig("figs3/{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
-        elif mode == "total-opt-gap":
-            plt.savefig("figs3/total-gap-{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
-        elif mode == "log-opt-gap":
-            plt.savefig("figs3/log-gap-{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
+            plt.savefig("formal_figs_exponential/{}.png".format(setting_name))
+        elif mode == "total-opt-gap-ratio":
+            plt.ylim((-0.06*max_value_for_ylim, max_value_for_ylim*1.05))
+            plt.savefig("figs3/total-gap-ratio-{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
+            plt.savefig("formal_figs_exponential/total-gap-ratio-{}.png".format(setting_name))
+        elif mode == "log-opt-gap-ratio":
+            if (setting_name == "random-size-8-uniform-(1)") and (mode == "log-opt-gap-ratio"):
+                plt.legend(fontsize=14, loc="center right")
+            plt.ylim((np.log10(truncate_level)+0.1, None))
+            plt.savefig("figs3/log-gap-ratio-{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
+            plt.savefig("formal_figs_exponential/log-gap-ratio-{}.png".format(setting_name))
         else:
             raise NotImplementedError
         plt.show()
@@ -698,10 +779,7 @@ if __name__ == "__main__":
     # for setting_name in ["non-sa"]: #["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]:
     #     for policy_name in ["ftva"]: #["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: # ["id", "setexp", "setopt", "ftva", "lppriority", "setexp-priority", "twoset-v1"]
     #         for rep_id in range(3,6):
-    #             tic = time.time()
     #             run_policies(setting_name, policy_name, "random", 160000, note="T16e4r{}".format(rep_id))
-    #             toc = time.time()
-    #             print("when T=160000, total time per policy =", toc-tic)
 
     # ## random 10-state dirichlet examples
     # for i in [582]: #[137, 355, 582]:
@@ -715,10 +793,7 @@ if __name__ == "__main__":
     # for setting_name in ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]:
     #     for policy_name in ["id", "setexp", "setopt", "ftva", "lppriority", "setexp-priority", "twoset-v1"]:
     #         for rep_id in range(1,6):
-    #             tic = time.time()
     #             run_policies(setting_name, policy_name, "random", 20000, note="T2e4r{}".format(rep_id))
-    #             toc = time.time()
-    #             print("when T=20000, total time per policy =", toc-tic)
 
     # ## random three-state examples
     # for i in range(5):
@@ -729,45 +804,55 @@ if __name__ == "__main__":
     #     # setting.suggest_act_frac = int(100*setting.suggest_act_frac)/100
     #     # setting.distr = "uniform"
     #     # rb_settings.save_bandit(setting, setting_path, None)
-    #     for policy_name in ["twoset-faithful"]: #["id", "lppriority", "twoset-v1", "twoset-faithful", "whittle"]: #["id", "setexp", "ftva", "lppriority", "setexp-priority", "twoset-v1", "twoset-faithful", "whittle"]:
+    #     for policy_name in ["twoset-faithful", "id", "lppriority", "whittle", "ftva"]:
     #         run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=list(range(100, 1100, 100)), note="T4e4")
     #         if i==2:
     #             run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=list(range(2000, 20000, 1000)), note="T4e4")
 
     # for setting_name in ["new2-eight-states-045"]:
     #     for policy_name in ["twoset-faithful"]: #["lppriority", "twoset-v1", "twoset-faithful", "id", "setexp", "ftva", "setexp-priority"]:
-    #         tic = time.time()
-    #         run_policies(setting_name, policy_name, "bad", 40000, note="T4e4", Ns=list(range(100,4000,200)))
-    #         toc = time.time()
-    #         print("when T=40000, total time per policy =", toc-tic)
+    #         run_policies(setting_name, policy_name, "bad", 40000, note="T4e4", Ns=list(range(100,4000,200)), debug=True)
 
-    # ## random 10-state dirichlet examples
-    ## [4116, 2667], rho(Phi) ~= 0.90, Ns = list(range(1000, 21000,1000))
-    ## [2270, 9632], rho(Phi) ~= 0.95, Ns = list(range(1000, 42000,2000))
-    ## [4339, 4149], rho(Phi) ~= 0.99, Ns = list(range(1000, 84000,4000))
-    # for i in [4339, 4149, 2667, 2270, 9632]:
-    #     setting_name = "stable-size-10-dirichlet-0.05-({})".format(i)
-    #     setting_path = "setting_data/" + setting_name
-    #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     for policy_name in ["twoset-faithful", "lppriority"]: #["twoset-faithful", "id", "lppriority", "whittle"]:
-    #         run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=list(range(100, 1100, 100)), skip_N_below=None, no_run=False)
-
-    # for i in [1436, 6265]:
-    #     setting_name = "mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i)
-    #     setting_path = "setting_data/" + setting_name
-    #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     for policy_name in ["twoset-faithful"]: #["twoset-faithful", "id", "lppriority", "whittle"]:
-    #         run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=list(range(100, 1100, 100)), skip_N_below=300, no_run=False)
+    # for setting_name in ["conveyor-belt-nd-12"]:
+    #     for policy_name in ["twoset-faithful"]: #["lppriority", "twoset-v1", "twoset-faithful", "id", "setexp", "ftva", "setexp-priority"]:
+    #         run_policies(setting_name, policy_name, "bad", 40000, note="T4e4", Ns=list(range(100,4000,200)), debug=True)
 
     # Ns = list(range(200,1200,200)) + [1500] + list(range(2000, 12000,2000))
-    # for i in range(1,2):
+    # for i in range(1):
     #     setting_name = "random-size-8-uniform-({})".format(i)
     #     setting_path = "setting_data/" + setting_name
     #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     for policy_name in ["twoset-faithful"]:#, "id", "lppriority", "whittle", "ftva"]: #["id", "setexp", "ftva", "lppriority", "setexp-priority", "twoset-v1", "twoset-faithful", "whittle"]:
-    #         tic = time.time()
-    #         run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=Ns, note="T4e4", no_run=False)
-    #         print("time for running one policy with T=40000 and {} data points is {}".format(len(Ns), time.time()-tic))
+    #     for policy_name in ["twoset-faithful"]: #, "id", "lppriority", "whittle", "ftva"]:
+    #         run_policies(setting_name, policy_name, "random", 320000, setting_path, Ns=Ns, note="T32e4")
+
+    figure_from_multiple_files_flexible_N()
 
 
-    figure_from_multiple_files_flexible_N_no_CI()
+    # my_pool = mp.Pool(3)
+    #
+    # task_list = []
+    # Ns = list(range(200,1200,200)) + [1500] + list(range(2000, 12000,2000))
+    # for i in range(1):
+    #     setting_name = "random-size-8-uniform-({})".format(i)
+    #     setting_path = "setting_data/" + setting_name
+    #     setting = rb_settings.ExampleFromFile(setting_path)
+    #     for policy_name in ["twoset-faithful", "lppriority", "whittle"]:
+    #         if policy_name == "twoset-faithful":
+    #             T = 320000
+    #             note = "T32e4"
+    #         else:
+    #             T = 2560000
+    #             note = "T256e4"
+    #         task_list.append(
+    #             my_pool.apply_async(run_policies, args=(setting_name, policy_name, "random", T, setting_path, Ns), kwds={"note": note})
+    #         )
+    #
+    # # for setting_name in ["new2-eight-states-045"]:
+    # #     for policy_name in ["twoset-faithful", "id", "lppriority", "whittle", "ftva"]:
+    # #         task_list.append(
+    # #             my_pool.apply_async(run_policies, args=(setting_name, policy_name, "bad", 40000), kwds={"Ns": Ns, "note":"T4e4"})
+    # #         )
+    #
+    # my_pool.close()
+    # my_pool.join()
+

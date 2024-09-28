@@ -765,4 +765,34 @@ np.set_printoptions(linewidth=800)
 # understand_whittle_index()
 # understand_spatial_graph()
 # test_SA()
-visualize_ideal_action_persistency()
+
+print(np.infty - np.infty)
+
+## some outdated codes moved from experiments2.py
+# ## random 10-state dirichlet examples
+## [4116, 2667], rho(Phi) ~= 0.90, Ns = list(range(1000, 21000,1000))
+## [2270, 9632], rho(Phi) ~= 0.95, Ns = list(range(1000, 42000,2000))
+## [4339, 4149], rho(Phi) ~= 0.99, Ns = list(range(1000, 84000,4000))
+# for i in [4339, 4149, 2667, 2270, 9632]:
+#     setting_name = "stable-size-10-dirichlet-0.05-({})".format(i)
+#     setting_path = "setting_data/" + setting_name
+#     setting = rb_settings.ExampleFromFile(setting_path)
+#     for policy_name in ["twoset-faithful", "lppriority"]: #["twoset-faithful", "id", "lppriority", "whittle"]:
+#         run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=list(range(100, 1100, 100)), skip_N_below=None, no_run=False)
+
+# for i in [1436, 6265]:
+#     setting_name = "mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i)
+#     setting_path = "setting_data/" + setting_name
+#     setting = rb_settings.ExampleFromFile(setting_path)
+#     for policy_name in ["twoset-faithful"]: #["twoset-faithful", "id", "lppriority", "whittle"]:
+#         run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=list(range(100, 1100, 100)), skip_N_below=300, no_run=False)
+
+
+#
+# Ns = list(range(200,1200,200)) + [1500] + list(range(2000, 12000,2000))
+# for i in range(4):
+#     setting_name = "random-size-8-uniform-simplex-({})".format(i)
+#     setting_path = "setting_data/" + setting_name
+#     setting = rb_settings.ExampleFromFile(setting_path)
+#     for policy_name in ["twoset-faithful", "id", "lppriority", "whittle", "ftva"]:
+#         run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=Ns, note="T2e4", no_run=True)

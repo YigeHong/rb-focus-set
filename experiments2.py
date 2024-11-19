@@ -9,6 +9,7 @@ import pickle
 from matplotlib import pyplot as plt
 import os
 import multiprocessing as mp
+import bisect
 
 
 def run_policies(setting_name, policy_name, init_method, T, setting_path=None, Ns=None, skip_N_below=None, no_run=False, debug=False, note=None):
@@ -66,6 +67,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
         # ensure alpha N is integer
         assert np.allclose(N*act_frac, round(N*act_frac), atol=1e-7), "N={}, act_frac={}, N*act_frac={}".format(N, act_frac, N*act_frac)
     num_reps = 1
+    save_mean_every = 1000 # save_mean_every=1 for data generated before Sep 28, 2024
     print()
     rb_settings.print_bandit(setting)
 
@@ -106,6 +108,10 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
             assert setting_and_data["policy_name"] == policy_name
             assert setting_and_data["setting_code"] == setting_name
             assert setting_and_data["init_method"] == init_method
+            if save_mean_every in setting_and_data:
+                assert setting_and_data["save_mean_every"] == save_mean_every
+            else:
+                assert save_mean_every == 1
 
     tic = time.time()
     reward_array = np.nan * np.empty((num_reps, len(Ns)))
@@ -135,20 +141,29 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
 
             if policy_name == "id":
                 policy = IDPolicy(setting.sspa_size, y, N, act_frac)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     actions, num_ideal_acts = policy.get_actions(cur_states)
                     assert np.sum(actions) == round(act_frac*N), "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(num_ideal_acts)
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(focus_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
                     # if t%100 == 0:
                     #     sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
                     #     s_fracs = np.sum(sa_fracs, axis=1)
                     #     print("t={}\ns_fracs={}".format(t, s_fracs))
             elif policy_name == "setexp":
                 policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     focus_set, non_shrink_flag = policy.get_new_focus_set(cur_states=cur_states,
@@ -159,8 +174,13 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     non_shrink_count += non_shrink_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(len(focus_set))
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(focus_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
                     # if t%100 == 0:
                     #     sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
                     #     s_fracs = np.sum(sa_fracs, axis=1)
@@ -169,6 +189,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     #     print("conformity count = {}, non-shrink count = {}".format(conformity_count, non_shrink_count))
             elif policy_name == "setopt":
                 policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     focus_set = policy.get_new_focus_set(cur_states=cur_states)
@@ -177,8 +199,13 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(len(focus_set))
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(focus_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
                     # if t%100 == 0:
                     #     sa_fracs = sa_list_to_freq(setting.sspa_size, cur_states, actions)
                     #     s_fracs = np.sum(sa_fracs, axis=1)
@@ -187,6 +214,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     #     print("conformity count = {}".format(conformity_count))
             elif policy_name == "setopt-tight":
                 policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     focus_set = policy.get_new_focus_set(cur_states=cur_states, subproblem="tight") ##
@@ -195,10 +224,17 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(len(focus_set))
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(focus_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
             elif policy_name == "setexp-id":
                 policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     focus_set, non_shrink_flag = policy.get_new_focus_set(cur_states=cur_states,
@@ -209,10 +245,17 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     non_shrink_count += non_shrink_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(len(focus_set))
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(focus_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
             elif policy_name == "setopt-id":
                 policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     focus_set = policy.get_new_focus_set(cur_states=cur_states)
@@ -221,10 +264,17 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(len(focus_set))
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(focus_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
             elif policy_name == "setexp-priority":
                 policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     focus_set, non_shrink_flag = policy.get_new_focus_set(cur_states=cur_states,
@@ -236,10 +286,17 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     non_shrink_count += non_shrink_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(len(focus_set))
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(focus_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
             elif policy_name == "setopt-priority":
                 policy = SetOptPolicy(setting.sspa_size, y, N, act_frac, W)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     focus_set = policy.get_new_focus_set(cur_states=cur_states)
@@ -249,11 +306,18 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(len(focus_set))
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(focus_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
             elif policy_name == "ftva":
                 policy = FTVAPolicy(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, y=y, N=N,
                                     act_frac=act_frac, init_virtual=None)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     prev_state = rb.get_states()
                     actions, virtual_actions = policy.get_actions(prev_state)
@@ -263,10 +327,16 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     total_reward += instant_reward
                     new_state = rb.get_states()
                     policy.virtual_step(prev_state, new_state, actions, virtual_actions)
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(num_good_arms)
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(focus_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
             elif policy_name == "lppriority":
                 policy = PriorityPolicy(setting.sspa_size, priority_list, N=N, act_frac=act_frac)
+                recent_total_reward = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     actions = policy.get_actions(cur_states)
@@ -275,7 +345,10 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     assert np.sum(actions) == round(act_frac*N), "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
+                    recent_total_reward += instant_reward
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        recent_total_reward = 0
             elif policy_name == "whittle":
                 if whittle_priority is -1:
                     print("Non-indexable!!!")
@@ -285,16 +358,22 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     return
                 else:
                     policy = PriorityPolicy(setting.sspa_size, whittle_priority, N=N, act_frac=act_frac)
+                recent_total_reward = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     actions = policy.get_actions(cur_states)
                     assert np.sum(actions) == round(act_frac*N), "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
+                    recent_total_reward += instant_reward
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        recent_total_reward = 0
             elif policy_name == "twoset-v1":
                 policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U)
                 # print("eta=", policy.eta)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     OL_set = policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set) ###
@@ -302,11 +381,18 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     assert np.sum(actions) == round(act_frac*N), "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(len(OL_set))
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(OL_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
             elif policy_name == "twoset-integer":
                 policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U, rounding="misocp")
                 # print("eta=", policy.eta)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     OL_set = policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set) ###
@@ -314,11 +400,18 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     assert np.sum(actions) == round(act_frac*N), "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(len(OL_set))
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(OL_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
             elif policy_name == "twoset-faithful":
                 policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U)
                 # print("eta=", policy.eta)
+                recent_total_reward = 0
+                recent_total_ideal_acts = 0
                 for t in range(T):
                     cur_states = rb.get_states()
                     OL_set = policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set)
@@ -326,8 +419,13 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     assert np.sum(actions) == round(act_frac*N), "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
-                    full_reward_trace[i,N].append(instant_reward)
-                    full_ideal_acts_trace[i,N].append(len(OL_set))
+                    recent_total_reward += instant_reward
+                    recent_total_ideal_acts += len(OL_set)
+                    if (t+1)%save_mean_every == 0:
+                        full_reward_trace[i,N].append(recent_total_reward / save_mean_every)
+                        full_ideal_acts_trace[i,N].append(recent_total_ideal_acts / save_mean_every)
+                        recent_total_reward = 0
+                        recent_total_ideal_acts = 0
             else:
                 raise NotImplementedError
             avg_reward = total_reward / T
@@ -361,7 +459,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                         "full_ideal_acts_trace": full_ideal_acts_trace,
                         "y": y,
                         "W": W,
-                        "upper bound": analyzer.opt_value
+                        "upper bound": analyzer.opt_value,
+                        "save_mean_every": save_mean_every
                     }
                 with open(data_file_name, 'wb') as f:
                     pickle.dump(setting_and_data, f)
@@ -372,8 +471,9 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
 def figure_from_multiple_files():
     # setting names in the unichain aperiodicity paper: ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]
     # setting names in the exponential paper ["random-size-3-uniform-({})".format(i) for i in range(5)]
-    settings = ["random-size-3-uniform-({})".format(i) for i in range(5)]
+    settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in [355]]
     policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id"]
+    skip_policies = []# ["setexp", "setexp-priority"]
     linestyle_str = ["-.", "-", "--", "-.", "--", "-"]
     policy_markers = ["v",".","^","s","p","*"]
     policy_colors = ["m","c","y","r","g","b"]
@@ -440,6 +540,8 @@ def figure_from_multiple_files():
         for i,policy_name in enumerate(policies):
             if (policy_name == "whittle") and ((setting_name, policy_name) not in batch_means_dict):
                 pass
+            elif policy_name in skip_policies:
+                pass
             else:
                 cur_batch_means = batch_means_dict[(setting_name, policy_name)]
                 plt.errorbar(Ns, np.mean(cur_batch_means, axis=1) / upper_bound,
@@ -465,115 +567,13 @@ def figure_from_multiple_files():
         plt.show()
 
 
-def figure_from_multiple_files_no_CI():
-    """
-    A simpler plotting function without computing confidence interval
-    """
-    # setting names in the unichain aperiodicity paper: ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]
-    # setting names in the exponential paper ["random-size-3-uniform-({})".format(i) for i in range(5)]
-    settings = ["random-size-8-uniform-({})".format(i) for i in range(4)] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4116]] # [4116, 2667] [2270, 9632]   #["random-size-3-uniform-({})".format(i) for i in range(0,5)] #["new2-eight-states-045"] #
-    policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id", "twoset-v1", "twoset-faithful"]
-    skip_policies =  ["ftva", "setexp", "setexp-priority","twoset-v1"] #, "lppriority", "whittle", "id"]
-    linestyle_str = ["-.", "-", "--", "-.", "--", "-", "-", "-."]
-    policy_markers = ["v",".","^","s","p","*", "v", "P"]
-    policy_colors = ["m","c","y","r","g","b", "brown", "orange"]
-    policy2label = {"id":"ID policy", "setexp":"Set expansion", "lppriority":"LP index policy",
-                    "whittle":"Whittle index policy", "ftva":"FTVA", "setexp-priority":"Set expansion (with LP index)",
-                    "twoset-v1":"Two-set v1", "twoset-faithful":"Two-set policy"}
-    target_num_batches = 20
-    Ns = np.array(list(range(2000, 20000,1000))) #np.array(list(range(100,1100,100))) #np.array(list(range(1500, 5500, 500))) # list(range(1000, 20000, 1000))
-    init_method = "random"
-    mode = "total-opt-gap" # "opt-ratio" or "total-opt-gap" or "log-opt-gap"
-
-    avg_rewards = {}
-    for setting_name in settings:
-        for policy_name in policies:
-            if policy_name in skip_policies:
-                continue
-            file_prefix = "{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method)
-            file_dir = "fig_data"
-            file_names = [file_name for file_name in os.listdir(file_dir) if file_name.startswith(file_prefix)]
-            print("{}:{}".format(file_prefix, file_names))
-            if len(file_names) == 0:
-                if policy_name == "whittle":
-                    continue
-                else:
-                    raise FileNotFoundError("no file with prefix {}".format(file_prefix))
-            total_avg_rewards = np.zeros(len(Ns))
-            for file_name in file_names:
-                with open(os.path.join(file_dir, file_name), 'rb') as f:
-                    setting_and_data = pickle.load(f)
-                    total_avg_rewards += np.average(setting_and_data["reward_array"], axis=0)
-            avg_rewards[(setting_name,policy_name)] = total_avg_rewards / len(file_names)
-
-    for setting_name in settings:
-        if setting_name == "eight-states":
-            upper_bound = 0.0125
-        elif setting_name == "three-states":
-            upper_bound = 0.12380016733626052
-        elif setting_name == "non-sa":
-            upper_bound = 1
-        else:
-            files_w_prefix = [filename for filename in os.listdir("fig_data")
-                              if filename.startswith("{}-{}-N{}-{}-{}".format(setting_name, "twoset-faithful", Ns[0], Ns[-1], init_method))]
-            with open("fig_data/"+files_w_prefix[0], 'rb') as f:
-                setting_and_data = pickle.load(f)
-                upper_bound = setting_and_data["upper bound"]
-        if mode == "opt-ratio":
-            plt.plot(Ns, np.array([1] * len(Ns)), label="Upper bound", linestyle="--", color="k")
-        for i,policy_name in enumerate(policies):
-            if (policy_name == "whittle") and ((setting_name, policy_name) not in avg_rewards):
-                continue
-            if policy_name in skip_policies:
-                continue
-            else:
-                if mode == "opt-ratio":
-                    plt.plot(Ns, avg_rewards[(setting_name,policy_name)] / upper_bound,
-                                 label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
-                                 marker=policy_markers[i], markersize=8, color=policy_colors[i])
-                elif mode == "total-opt-gap":
-                    plt.plot(Ns, (upper_bound - avg_rewards[(setting_name,policy_name)]) * Ns,
-                                 label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
-                                 marker=policy_markers[i], markersize=8, color=policy_colors[i])
-                elif mode == "log-opt-gap":
-                    plt.plot(Ns, np.log10(upper_bound - avg_rewards[(setting_name,policy_name)]),
-                                 label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
-                                 marker=policy_markers[i], markersize=8, color=policy_colors[i])
-                else:
-                    raise NotImplementedError
-            plt.xlabel("N", fontsize=14)
-        plt.xticks(fontsize=14)
-        if mode == "opt-ratio":
-            plt.ylabel("Optimality ratio", fontsize=14)
-        elif mode == "total-opt-gap":
-            plt.ylabel("N * optimality gap ")
-        elif mode == "log-opt-gap":
-            plt.ylabel("Log_10 optimality gap")
-        else:
-            raise NotImplementedError
-        plt.yticks(fontsize=14)
-        plt.tight_layout()
-        plt.grid()
-        plt.legend(fontsize=14)
-        if mode == "opt-ratio":
-            # plt.savefig("figs3/{}-N{}-{}-{}.pdf".format(setting_name, Ns[0], Ns[-1], init_method))
-            plt.savefig("figs3/{}-N{}-{}-{}.png".format(setting_name, Ns[0], Ns[-1], init_method))
-        elif mode == "total-opt-gap":
-            plt.savefig("figs3/total-gap-{}-N{}-{}-{}.png".format(setting_name, Ns[0], Ns[-1], init_method))
-        elif mode == "log-opt-gap":
-            plt.savefig("figs3/log-gap-{}-N{}-{}-{}.png".format(setting_name, Ns[0], Ns[-1], init_method))
-        else:
-            raise NotImplementedError
-        plt.show()
-
-
 def figure_from_multiple_files_flexible_N(note=None):
     """
     Plotting function that reads data files with Ns to combine into one plot.
     """
     # setting names in the unichain aperiodicity paper: ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]
     # setting names in the exponential paper ["random-size-3-uniform-({})".format(i) for i in range(5)]
-    settings = ["random-size-8-uniform-({})".format(i) for i in [1]]  #["new2-eight-states-045", "conveyor-belt-nd-12"]  # ["mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i) for i in [1436, 6265]] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4339]]#, 4149, 4116, 2667, 2270, 9632]]
+    settings = ["new2-eight-states-045"] #["conveyor-belt-nd-12"] # ["random-size-8-uniform-({})".format(i) for i in [1]] # ["mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i) for i in [1436, 6265]] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4339]]#, 4149, 4116, 2667, 2270, 9632]]
     policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id", "twoset-v1", "twoset-faithful"]
     skip_policies =  ["setexp", "setexp-priority","twoset-v1"]
     linestyle_str = ["-.", "-", "--", "-.", "--", "-", "-", "-."]
@@ -586,12 +586,14 @@ def figure_from_multiple_files_flexible_N(note=None):
                         "random-size-8-uniform-(2)": 10**(-6), "random-size-8-uniform-(3)": 10**(-6)}
     truncate_level_default = 10**(-7)
     plot_CI = True
-    batch_size = 8000
+    batch_size_mode = "adaptive" #"fixed" or "adaptive"
+    batch_size = 8000 # only if batch_size_mode = "fixed"
+    burn_in_batch = 1
     # mode = "fixed" # "fixed", or "range"
     N_range = [200, 10000] # closed interval
-    init_method = "random"
-    mode = "log-opt-gap-ratio" # "opt-ratio" or "total-opt-gap-ratio" or "log-opt-gap-ratio"
-    file_dir = "fig_data" #"fig_data_server_0928"
+    init_method = "bad"
+    mode = "total-opt-gap-ratio" # "opt-ratio" or "total-opt-gap-ratio" or "log-opt-gap-ratio"
+    file_dirs = ["fig_data_server_0928"] #["fig_data", "fig_data_server_0922", "fig_data_server_0925", "fig_data_server_0928", "fig_data_server_1001"]
 
     all_batch_means = {}
     for setting_name in settings:
@@ -599,66 +601,71 @@ def figure_from_multiple_files_flexible_N(note=None):
             if policy_name in skip_policies:
                 continue
             file_prefix = "{}-{}".format(setting_name, policy_name)
-            if note is None:
-                file_names = [file_name for file_name in os.listdir(file_dir)
-                              if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])]
-            else:
-                file_names = [file_name for file_name in os.listdir(file_dir)
-                              if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])
-                              and (note in file_name.split("-")[(-1):])]
-            print("{}:{}".format(file_prefix, file_names))
-            if len(file_names) == 0:
+            file_paths = []
+            for file_dir in file_dirs:
+                if note is None:
+                    file_paths.extend([os.path.join(file_dir,file_name) for file_name in os.listdir(file_dir)
+                                  if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])])
+                    # if policy_name in ["id", "lppriority"]:  ### temp, debugging
+                    #     file_names = [file_name for file_name in file_names if "testing" in file_name.split("-")]
+                else:
+                    file_paths.extend([os.path.join(file_dir,file_name) for file_name in os.listdir(file_dir)
+                                  if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])
+                                  and (note in file_name.split("-")[(-1):])])
+            print("{}:{}".format(file_prefix, file_paths))
+            if len(file_paths) == 0:
                 if policy_name == "whittle":
                     continue
                 else:
                     raise FileNotFoundError("no file that match the prefix {} and init_method = {}".format(file_prefix, init_method))
             N2batch_means = {}
             N_longest_T = {} # only plot with the longest T; N_longest_T helps identifying the file with longest T
-            for file_name in file_names:
-                with open(os.path.join(file_dir, file_name), 'rb') as f:
+            for file_path in file_paths:
+                with open(file_path, 'rb') as f:
                     setting_and_data = pickle.load(f)
                     for i, N in enumerate(setting_and_data["Ns"]):
                         if (N < N_range[0]) or (N > N_range[1]):
                             continue
                         if (i, N) not in setting_and_data["full_reward_trace"]:
-                            print("N={} not available in {}".format(N, file_name))
+                            print("N={} not available in {}".format(N, file_path))
                             continue
-                        # if (setting_name == "random-size-8-uniform-(1)") and (not file_name.split("-")[-1].startswith("Long")) and ():
-                            # some special handling of this simulation data setting, do not use short data
-                            # pass
                         if N not in N2batch_means:
                             N2batch_means[N] = []
                             N_longest_T[N] = 0
                         if N_longest_T[N] > setting_and_data["T"]:
                             continue
-                        elif N_longest_T[N] == setting_and_data["T"]:
-                            print(setting_name, N, "appending data from ", file_name)
-                            for t in range(0, setting_and_data["T"], batch_size):
-                                N2batch_means[N].append(np.mean(setting_and_data["full_reward_trace"][(i,N)][t:(t+batch_size)]))
                         else:
-                            N_longest_T[N] = setting_and_data["T"]
-                            N2batch_means[N] = []
-                            print(setting_name, N, "replaced with data from ", file_name)
-                            for t in range(0, setting_and_data["T"], batch_size):
-                                N2batch_means[N].append(np.mean(setting_and_data["full_reward_trace"][(i,N)][t:(t+batch_size)]))
+                            if "save_mean_every" in setting_and_data:
+                                save_mean_every = setting_and_data["save_mean_every"]
+                            else:
+                                save_mean_every = 1
+                            if N_longest_T[N] == setting_and_data["T"]:
+                                continue #### only use one batch of data with largest horizon; comment out otherwise
+                                # print(setting_name, N, "appending data from ", file_path)
+                            else:
+                                N_longest_T[N] = setting_and_data["T"]
+                                N2batch_means[N] = []
+                                print(setting_name, N, "replaced with data from ", file_path)
+                            if batch_size_mode == "adaptive":
+                                batch_size = round(N_longest_T[N] / 20)
+                            assert batch_size % save_mean_every == 0, "batch size is not a multiple of save_mean_every={}".format(save_mean_every)
+                            for t in range(round(batch_size / save_mean_every)*burn_in_batch, round(setting_and_data["T"] / save_mean_every), round(batch_size / save_mean_every)):
+                                N2batch_means[N].append(np.mean(setting_and_data["full_reward_trace"][(i,N)][t:(t+round(batch_size / save_mean_every))]))
             for N in N2batch_means:
                 N2batch_means[N] = np.array(N2batch_means[N])
             all_batch_means[(setting_name,policy_name)] = N2batch_means
+            with open(file_paths[0], 'rb') as f:
+                setting_and_data = pickle.load(f)
+                all_batch_means[(setting_name,"upper bound")] = setting_and_data["upper bound"]
 
     for setting_name in settings:
-        if setting_name == "eight-states":
-            upper_bound = 0.0125
-        elif setting_name == "three-states":
-            upper_bound = 0.12380016733626052
-        elif setting_name == "non-sa":
-            upper_bound = 1
-        else:
-            file_prefix = "{}-{}".format(setting_name, "twoset-faithful")
-            file_names = [file_name for file_name in os.listdir(file_dir)
-                          if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])]
-            with open(os.path.join(file_dir, file_names[0]), 'rb') as f:
-                setting_and_data = pickle.load(f)
-                upper_bound = setting_and_data["upper bound"]
+        # file_prefix = "{}-{}".format(setting_name, "twoset-faithful")
+        # file_names = [file_name for file_name in os.listdir(file_dirs[0])
+        #               if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])]
+        # with open(os.path.join(file_dirs[0], file_names[0]), 'rb') as f:
+        #     setting_and_data = pickle.load(f)
+        #     upper_bound = setting_and_data["upper bound"]
+        upper_bound = all_batch_means[(setting_name,"upper bound")]
         if setting_name in setting2truncate:
             truncate_level = setting2truncate[setting_name]
         else:
@@ -687,15 +694,21 @@ def figure_from_multiple_files_flexible_N(note=None):
                 Ns_local_sorted = Ns_local[sorted_indices]
                 avg_rewards_local_sorted = avg_rewards_local[sorted_indices]
                 yerrs_local_sorted = yerrs_local[sorted_indices]
-                ## special handling of "random-size-8-uniform-(1)": remove data > 4000
+                print(setting_name, policy_name, avg_rewards_local_sorted, yerrs_local_sorted)
+                ## special handling of "random-size-8-uniform-(1)":...
                 if (setting_name == "random-size-8-uniform-(1)"):
-                    for j, N in enumerate(Ns_local_sorted):
-                        if policy_name in ["whittle", "lppriority"] and (N>4000):
-                            avg_rewards_local_sorted[j] = upper_bound
-                            yerrs_local_sorted[j] = 0
-                        elif (policy_name == "twoset-faithful") and (N > 8000):
-                            avg_rewards_local_sorted[j] = upper_bound
-                            yerrs_local_sorted[j] = 0
+                    if policy_name in ["whittle", "lppriority"]:
+                        show_until = bisect.bisect_left(Ns_local_sorted, 6000)
+                        Ns_local_sorted = Ns_local_sorted[0:show_until]
+                        avg_rewards_local_sorted = avg_rewards_local_sorted[0:show_until]
+                        yerrs_local_sorted = yerrs_local_sorted[0:show_until]
+                    # for j, N in enumerate(Ns_local_sorted):
+                    #     if policy_name in ["whittle", "lppriority"] and (N>=6000):
+                            # avg_rewards_local_sorted[j] = upper_bound
+                            # yerrs_local_sorted[j] = 0
+                        # elif (policy_name == "twoset-faithful") and (N > 8000):
+                        #     avg_rewards_local_sorted[j] = upper_bound
+                        #     yerrs_local_sorted[j] = 0
 
                 if not plot_CI:
                     if mode == "opt-ratio":
@@ -745,15 +758,18 @@ def figure_from_multiple_files_flexible_N(note=None):
         if mode == "opt-ratio":
             plt.ylabel("Optimality ratio", fontsize=14)
         elif mode == "total-opt-gap-ratio":
-            plt.ylabel("N * (Optimality gap ratio)", fontsize=14)
+            plt.ylabel("Total optimality gap ratio", fontsize=14)
         elif mode == "log-opt-gap-ratio":
-            plt.ylabel(r"$\log_{10}$(Optimality gap ratio)", fontsize=14)
+            plt.ylabel("Log optimality gap ratio", fontsize=14)
         else:
             raise NotImplementedError
         plt.yticks(fontsize=14)
         plt.tight_layout()
         plt.grid()
-        plt.legend(fontsize=14)
+        if (setting_name == "random-size-8-uniform-(1)") and (mode == "log-opt-gap-ratio"):
+            pass # plt.legend(fontsize=14, loc="center right")
+        else:
+            plt.legend(fontsize=14)
         if mode == "opt-ratio":
             # plt.savefig("figs3/{}-N{}-{}-{}.pdf".format(setting_name, Ns[0], Ns[-1], init_method))
             plt.savefig("figs3/{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
@@ -763,8 +779,6 @@ def figure_from_multiple_files_flexible_N(note=None):
             plt.savefig("figs3/total-gap-ratio-{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
             plt.savefig("formal_figs_exponential/total-gap-ratio-{}.png".format(setting_name))
         elif mode == "log-opt-gap-ratio":
-            if (setting_name == "random-size-8-uniform-(1)") and (mode == "log-opt-gap-ratio"):
-                plt.legend(fontsize=14, loc="center right")
             plt.ylim((np.log10(truncate_level)+0.1, None))
             plt.savefig("figs3/log-gap-ratio-{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
             plt.savefig("formal_figs_exponential/log-gap-ratio-{}.png".format(setting_name))
@@ -818,31 +832,33 @@ if __name__ == "__main__":
     #         run_policies(setting_name, policy_name, "bad", 40000, note="T4e4", Ns=list(range(100,4000,200)), debug=True)
 
     # Ns = list(range(200,1200,200)) + [1500] + list(range(2000, 12000,2000))
-    # for i in range(1):
+    # for i in range(2,3):
     #     setting_name = "random-size-8-uniform-({})".format(i)
     #     setting_path = "setting_data/" + setting_name
     #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     for policy_name in ["twoset-faithful"]: #, "id", "lppriority", "whittle", "ftva"]:
-    #         run_policies(setting_name, policy_name, "random", 320000, setting_path, Ns=Ns, note="T32e4")
+    #     for policy_name in ["lppriority"]: #, "id", "lppriority", "whittle", "ftva"]:
+    #         run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=Ns, note="testing")
 
-    figure_from_multiple_files_flexible_N()
+    # figure_from_multiple_files_flexible_N()
+    figure_from_multiple_files()
 
-
-    # my_pool = mp.Pool(3)
+    # my_pool = mp.Pool(2)
     #
     # task_list = []
     # Ns = list(range(200,1200,200)) + [1500] + list(range(2000, 12000,2000))
-    # for i in range(1):
+    # for i in range(3,4):
     #     setting_name = "random-size-8-uniform-({})".format(i)
     #     setting_path = "setting_data/" + setting_name
     #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     for policy_name in ["twoset-faithful", "lppriority", "whittle"]:
-    #         if policy_name == "twoset-faithful":
-    #             T = 320000
-    #             note = "T32e4"
-    #         else:
-    #             T = 2560000
-    #             note = "T256e4"
+    #     for policy_name in ["id", "lppriority"]: #["twoset-faithful", "lppriority", "whittle"]:
+    #         # if policy_name == "twoset-faithful":
+    #         #     T = 320000
+    #         #     note = "T32e4"
+    #         # else:
+    #         #     T = 2560000
+    #         #     note = "T256e4"
+    #         T = 40000
+    #         note = "testing"
     #         task_list.append(
     #             my_pool.apply_async(run_policies, args=(setting_name, policy_name, "random", T, setting_path, Ns), kwds={"note": note})
     #         )
@@ -855,4 +871,4 @@ if __name__ == "__main__":
     #
     # my_pool.close()
     # my_pool.join()
-
+    #

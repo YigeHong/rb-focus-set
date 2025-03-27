@@ -22,20 +22,31 @@ def convert_name_to_setting(setting_name, setting_path):
     elif setting_name == "non-sa":
         setting = rb_settings.NonSAExample()
     elif setting_name == "eight-states-045":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+        probs_L, probs_R, action_script, suggest_act_frac, _ = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
         setting.suggest_act_frac = 0.45
     elif setting_name == "new-eight-states":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+        probs_L, probs_R, action_script, suggest_act_frac, _ = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
         setting.reward_tensor[0,1] = 0.02
     elif setting_name == "new2-eight-states":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+        probs_L, probs_R, action_script, suggest_act_frac, _ = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
         setting.reward_tensor[0,1] = 0.1/30
+    elif setting_name == "new2-eight-states-045":
+        probs_L, probs_R, action_script, suggest_act_frac, _ = rb_settings.ConveyorExample.get_parameters(
+            "eg4action-gap-tb", 8)
+        setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
+        setting.reward_tensor[0,1] = 0.1/30
+        setting.suggest_act_frac = 0.45
+    elif setting_name.startswith("conveyor-belt-nd"):
+        sspa_size = int(setting_name.split("-")[-1])
+        probs_L, probs_R, action_script, suggest_act_frac, r_disturb = rb_settings.ConveyorExample.get_parameters(
+            "arbitrary-length", sspa_size, nonindexable=True)
+        setting = rb_settings.ConveyorExample(sspa_size, probs_L, probs_R, action_script, suggest_act_frac, r_disturb=r_disturb)
     elif setting_name == "non-sa-big1":
         setting = rb_settings.BigNonSAExample("v1")
     elif setting_name == "non-sa-big2":
@@ -569,20 +580,18 @@ def visualize_focus_sets_from_file():
 
 
 def animate_ID_policy():
-    probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
-    setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
-    # setting.suggest_act_frac = 0.45
-    # setting = rb_settings.Gast20Example2()
-    # setting = rb_settings.NonSAExample()
-    # setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(0)")
-    N = 100
+    setting_name = "random-size-10-dirichlet-0.05-(355)" #"new2-eight-states-045"
+    setting_path = "setting_data/" + setting_name
+    setting = convert_name_to_setting(setting_name, setting_path)
+    N = 500
     act_frac = setting.suggest_act_frac
     beta = min(act_frac, 1-act_frac)
     rb_settings.print_bandit(setting)
 
-    T = 1000
-    T_ahead=100
+    T = 300
+    # T_ahead=100
     init_method = "bad" # "random" or "bad
+    simulate_twoset = False
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     y = analyzer.solve_lp()[1]
@@ -593,56 +602,112 @@ def animate_ID_policy():
         init_states = np.random.choice(np.arange(4, setting.sspa_size), N, replace=True)
     else:
         raise NotImplementedError
-    rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
     W = analyzer.compute_W(abstol=1e-10)[0]
     print("2*lambda_W = ", 2*np.linalg.norm(W, ord=2))
+    U = analyzer.compute_U(abstol=1e-10)[0]
+    cpibs = analyzer.policy[:,1]
+    ratiocw = np.sqrt(np.matmul(cpibs.T, np.linalg.solve(W, cpibs)))
 
+    states_traces = {"id":[], "twoset-faithful":[]}
+    # first simulate the ID policy
     id_policy = IDPolicy(setting.sspa_size, y, N, act_frac)
-    # setexp_policy = SetExpansionPolicy(setting.sspa_size, y, N, act_frac, W=W)
-
-    total_reward = 0
-    states_trace = []
-    ideal_acts = []
+    rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
     for t in range(T):
+        print("simulating ID policy, t={}".format(t))
         cur_states = rb.get_states()
         actions, num_ideal_act = id_policy.get_actions(cur_states)
         instant_reward = rb.step(actions)
-        total_reward += instant_reward
-        states_trace.append(cur_states)
-        ideal_acts.append(num_ideal_act)
+        states_traces["id"].append(cur_states)
 
-    ideal_acts_lookahead_min = []
-    for i in range(T):
-        ideal_acts_lookahead_min.append(min(ideal_acts[i:(min(i+T_ahead,T))]))
+    if simulate_twoset:
+        # next simulate the two-set policy
+        twoset_policy = TwoSetPolicy(setting.sspa_size, y, N, act_frac, U)
+        rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
 
+        OL_set = np.array([], dtype=int)
+        EP_set = np.arange(0, max(int(min(act_frac,1-act_frac)*N)-1,0),dtype=int)
+        for t in range(T):
+            print("simulating two-set policy, t={}".format(t))
+            cur_states = rb.get_states()
+            OL_set = twoset_policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set)
+            actions, EP_set = twoset_policy.get_actions_with_EP_set(cur_states=cur_states, cur_OL_set=OL_set, last_EP_set=EP_set)
+            assert np.sum(actions) == round(act_frac*N), "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+            instant_reward = rb.step(actions)
+            remaining_set_mask = np.ones((N,))
+            remaining_set_mask[OL_set] = 0
+            if len(EP_set) > 0:
+                remaining_set_mask[EP_set] = 0
+            remaining_set = np.where(remaining_set_mask)[0]
+            data_to_plot = []
+            if len(OL_set) > 0:
+                data_to_plot.append(cur_states[OL_set])
+            else:
+                data_to_plot.append([])
+            if len(EP_set) > 0:
+                data_to_plot.append(cur_states[EP_set])
+            else:
+                data_to_plot.append([])
+            if len(remaining_set) > 0:
+                data_to_plot.append(cur_states[remaining_set])
+            else:
+                data_to_plot.append([])
+            states_traces["twoset-faithful"].append(data_to_plot)
 
+    # ideal_acts_lookahead_min = []
+    # for i in range(T):
+    #     ideal_acts_lookahead_min.append(min(ideal_acts[i:(min(i+T_ahead,T))]))
+
+    print("making animations")
     fig, ax = plt.subplots()
     upper_bound = np.array([beta*(1-i/N) for i in range(N)])
-    line1 = ax.plot(np.arange(N), upper_bound, label="budget window")[0]
-    line2 = ax.plot(np.arange(N), [1]*N, label="max L1 norm bound")[0]
-    line3 = ax.plot(np.arange(N), [1]*N, label="L1 norm bound")[0]
-    line4 = ax.axvline(ideal_acts_lookahead_min[0], 0, 1, label="actual focus set")
+    line1 = ax.plot(np.arange(N), upper_bound)[0]
+    # line2 = ax.plot(np.arange(N), [1]*N, label="max W norm bound")[0]
+    line3 = ax.plot(np.arange(N), [1]*N, label=r"$c_{c/W}*h$ for ID policy")[0]
+    # line4 = ax.axvline(ideal_acts_lookahead_min[0], 0, 1, label="actual focus set")
+    if simulate_twoset:
+        line5 = ax.plot(np.arange(N), [1]*N, label=r"$c_{c/W}*h$ for two-set policy")[0]
     ax.set_ylim([0,0.6])
     ax.set_xlabel("subsystem size")
     ax.legend()
 
     def update_ID_curve(frame):
-        cur_states = states_trace[frame]
+        cur_states = states_traces["id"][frame]
         norm_bounds = []
         for n in range(1,N+1):
             XD = states_to_scaled_state_counts(setting.sspa_size, N, cur_states[0:n])
-            norm_bounds.append(np.linalg.norm(XD - n/N*analyzer.state_probs, ord=1) / 2)
+            # norm_bounds.append(np.linalg.norm(XD - n/N*analyzer.state_probs, ord=1) / 2)
+            norm_bounds.append(ratiocw * np.linalg.norm(np.matmul(scipy.linalg.sqrtm(W), (XD - n/N*analyzer.state_probs)), ord=2))
         norm_bounds = np.array(norm_bounds)
         max_norm_bounds = np.array([np.max(norm_bounds[0:n]) for n in range(1,N+1)])
-        line2.set_ydata(max_norm_bounds)
-        line3.set_ydata(norm_bounds)
-        line4.set_xdata(ideal_acts_lookahead_min[frame])
-        ax.set_title("{}, N={},T_ahead={}, init method={}; t={}".format("eight-states example", N, T_ahead, init_method, frame))
+        # line2.set_ydata(max_norm_bounds)
+        line3.set_ydata(max_norm_bounds)
+        # line4.set_xdata(ideal_acts_lookahead_min[frame])
 
-    ani = animation.FuncAnimation(fig=fig, func=update_ID_curve, frames=400, interval=50)
-    ani.save("figs2/ID-animation/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}.html".format("animation", "eight-states", N, T, T_ahead, init_method),
-             writer="html")
+        if simulate_twoset:
+            OL_states, EP_states, rem_states = states_traces["twoset-faithful"][frame]
+            norm_bounds = []
+            for n in range(1, (len(OL_states)+1)):
+                # XD = states_to_scaled_state_counts(setting.sspa_size, N, OL_states[0:n])
+                # norm_bounds.append(np.linalg.norm(np.matmul(scipy.linalg.sqrtm(W), (XD - n/N*analyzer.state_probs)), ord=2))
+                norm_bounds.append(0)
+            for n in range(1, (len(EP_states)+1)):
+                XD = states_to_scaled_state_counts(setting.sspa_size, N, np.concatenate([EP_states[0:n]]))
+                norm_bounds.append(ratiocw * np.linalg.norm(np.matmul(scipy.linalg.sqrtm(W), (XD - n/N*analyzer.state_probs)), ord=2))
+            for n in range(1, (len(rem_states)+1)):
+                XD = states_to_scaled_state_counts(setting.sspa_size, N, np.concatenate([EP_states, rem_states[0:n]]))
+                norm_bounds.append(ratiocw * np.linalg.norm(np.matmul(scipy.linalg.sqrtm(W), (XD - n/N*analyzer.state_probs)), ord=2))
+            norm_bounds = np.array(norm_bounds)
+            two_set_max_norm_bounds = np.array([np.max(norm_bounds[0:n]) for n in range(1,N+1)])
+            line5.set_ydata(two_set_max_norm_bounds)
+
+        # ax.set_title("{}, N={}, init method={}; t={}".format(setting_name, N, T_ahead, init_method, frame))
+        ax.set_title("{}, N={}, init method={}; t={}".format(setting_name, N, init_method, frame))
+
+    ani = animation.FuncAnimation(fig=fig, func=update_ID_curve, frames=T, interval=50)
+    ani.save("figs2/ID-animation/{}-{}-N-{}-T-{}-init-{}.html".format("animation", setting_name, N, T, init_method), writer="html")
+    # ani.save("figs2/ID-animation/{}-{}-N-{}-T-{}-T_ahead-{}-init-{}.html".format("animation", setting_name, N, T, T_ahead, init_method), writer="html")
     # plt.show()
+
 
 def understand_whittle_index():
     # probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters("eg4action-gap-tb", 8)
@@ -761,12 +826,12 @@ np.set_printoptions(linewidth=800)
 # edit_data()
 # test_ID_focus_set()
 # visualize_focus_sets_from_file()
-# animate_ID_policy()
+animate_ID_policy()
 # understand_whittle_index()
 # understand_spatial_graph()
 # test_SA()
 
-print(np.infty - np.infty)
+
 
 ## some outdated codes moved from experiments2.py
 # ## random 10-state dirichlet examples

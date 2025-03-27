@@ -107,7 +107,7 @@ class MeanFieldRB(object):
         """
         assert np.all(np.isclose(np.sum(sa_pair_fracs, axis=1), self.state_fracs, atol=1e-4)), \
             "the input sa_pair_fracs is not consistent with current state, {}!={}".format(np.sum(sa_pair_fracs, axis=1), self.state_fracs)
-        new_state_fracs = np.zeros((self.sspa_size))
+        new_state_fracs = np.zeros((self.sspa_size,))
         instant_reward = 0
         for new_state in self.sspa:
             new_state_fracs[new_state] = np.sum(sa_pair_fracs * self.trans_tensor[:,:,new_state])

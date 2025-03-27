@@ -572,8 +572,9 @@ def figure_from_multiple_files_flexible_N(note=None):
     Plotting function that reads data files with Ns to combine into one plot.
     """
     # setting names in the unichain aperiodicity paper: ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]
-    # setting names in the exponential paper ["random-size-3-uniform-({})".format(i) for i in range(5)]
-    settings = ["new2-eight-states-045"] #["conveyor-belt-nd-12"] # ["random-size-8-uniform-({})".format(i) for i in [1]] # ["mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i) for i in [1436, 6265]] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4339]]#, 4149, 4116, 2667, 2270, 9632]]
+    # setting names in the exponential paper ["new2-eight-states-045"]+["conveyor-belt-nd-12"]+["random-size-8-uniform-({})".format(i) for i in [1, 6, 0]]
+    # other possible settings ["random-size-8-uniform-({})".format(i) for i in [1]] # ["mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i) for i in [1436, 6265]] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4339]]#, 4149, 4116, 2667, 2270, 9632]]
+    settings = ["new2-eight-states-045"]
     policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id", "twoset-v1", "twoset-faithful"]
     skip_policies =  ["setexp", "setexp-priority","twoset-v1"]
     linestyle_str = ["-.", "-", "--", "-.", "--", "-", "-", "-."]
@@ -795,12 +796,12 @@ if __name__ == "__main__":
     #         for rep_id in range(3,6):
     #             run_policies(setting_name, policy_name, "random", 160000, note="T16e4r{}".format(rep_id))
 
-    # ## random 10-state dirichlet examples
-    # for i in [582]: #[137, 355, 582]:
+    ## random 10-state dirichlet examples
+    # for i in [276]: #[137, 355, 582]:
     #     setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
-    #     setting_path = "setting_data/" + setting_name
+    #     setting_path = "setting_data/local_unstable_subopt/" + setting_name
     #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     for policy_name in ["setexp-priority"]: #["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
+    #     for policy_name in ["lppriority"]: #["id", "setexp", "ftva", "lppriority", "setexp-priority", "whittle"]: #["id", "setexp", "setopt", "ftva", "lppriority", "setopt-priority", "twoset-v1"]:
     #         for rep_id in range(1,6):
     #             run_policies(setting_name, policy_name, "random", 20000, setting_path, note="T2e4r{}".format(rep_id))
 

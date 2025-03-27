@@ -52,11 +52,10 @@ def search_and_store_unstable_examples():
     ## output settings
     num_examples = 10000
     num_reward_modif_examples = 0
-    T_mf_simulation = 1000
     make_scatter_plot = False
     plot_subopt_cdf = False
     save_subopt_examples = False
-    save_mix_examples = True
+    save_mix_examples = False
     unichain_threshold = 0.95
     plot_sa_hitting_time = False
     plot_sa_hitting_time_vs_opt = False
@@ -73,6 +72,12 @@ def search_and_store_unstable_examples():
     # simulation button for FTVA
     do_ftva_simulation = False
     simulate_ftva_up_to_ith = 500
+    # simulate mean-field dynamics for locally stable examples
+    do_local_stable_simulation = False
+    simulate_local_stable_up_to_ith = 10000
+    num_inits_for_test_UGAP = 10
+    T_mf_simulation = 5000
+    UGAP_subopt_threshold = 0.99
     ## hyperparameters
     sspa_size = 10
     distr = "dirichlet" #"uniform", "dirichlet", "CL
@@ -128,6 +133,7 @@ def search_and_store_unstable_examples():
         for policy_name in policy_names:
             simu_data[policy_name] = [[] for i in range(num_examples)]
             simu_data[(policy_name+"-final-state")] =  [None for i in range(num_examples)]
+    # load data of ftva simulation
     simu_ftva_file_path = "random_example_data/simu-ftva-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
     if os.path.exists(simu_ftva_file_path):
         with open(simu_ftva_file_path, "rb") as f:
@@ -137,6 +143,16 @@ def search_and_store_unstable_examples():
         simu_ftva_data["N"] = N
         simu_ftva_data["FTVA"] = [[] for i in range(num_examples)]
         simu_ftva_data["FTVA-final-state"] = [None for i in range(num_examples)]
+    # load data of mean-field simulation of locally stable examples
+    simu_local_stable_path = "random_example_data/simu-local-stable-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
+    if os.path.exists(simu_local_stable_path):
+        with open(simu_local_stable_path, "rb") as f:
+            simu_local_stable_data = pickle.load(f)
+    else:
+        simu_local_stable_data = {}
+        simu_local_stable_data["N"] = N
+        for policy_name in policy_names:
+            simu_local_stable_data[policy_name] = [[] for i in range(num_examples)]
 
     # mode: search for new examples? add reward modification to existing example?
     num_exist_examples = len(all_data["examples"])
@@ -293,7 +309,7 @@ def search_and_store_unstable_examples():
             subopt_ratios_w.append(subopt_ratio_w)
             if (subopt_ratio < 0.9) and (subopt_ratio_w < 0.9):
                 # print("In the {}-th example, lp index is {}-optimal, Whittle index is {}-suboptimal, rho(Phi)={}".format(i, subopt_ratio, subopt_ratio_w, setting.local_stab_eigval))
-                setting_save_path =  "setting_data/random-size-{}-{}-({})".format(sspa_size, distr_and_parameter, i)
+                setting_save_path =  "setting_data/local_unstable_subopt/random-size-{}-{}-({})".format(sspa_size, distr_and_parameter, i)
                 # save suboptimal examples
                 if save_subopt_examples:
                     print("saving the example...")
@@ -479,6 +495,60 @@ def search_and_store_unstable_examples():
                 time.time()-tic)
             )
 
+    # simulating mean-field dynamics of locally stable examples to find non-UGAP
+    if do_local_stable_simulation:
+        print("Mean-field simulation of locally stable example starts. " +
+              "{} initial points for each example".format(num_inits_for_test_UGAP))
+        for policy_name in policy_names:
+            for i, setting in enumerate(all_data["examples"]):
+                if i >= simulate_local_stable_up_to_ith:
+                    break
+                if (setting is None) or (setting.local_stab_eigval > 1):
+                    # only simulate the locally STABLE examples
+                    continue
+                print("Simulating the mean-field of {}-th setting, policy={}".format(i, policy_name))
+                # set up the example
+                setting = all_data["examples"][i]
+                act_frac = setting.suggest_act_frac
+                analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
+                y = analyzer.solve_lp(verbose=False)[1]
+                if policy_name == "lppriority":
+                    priority_list = analyzer.solve_LP_Priority(verbose=False)
+                elif policy_name == "whittle":
+                    priority_list = analyzer.solve_whittles_policy()
+                    if type(priority_list) is int:
+                        simu_data[policy_name][i] = [0 for i in range(simu_thousand_steps)]
+                        continue
+                else:
+                    raise NotImplementedError
+                existing_inits = len(simu_local_stable_data[policy_name][i])
+                for init_index in range(num_inits_for_test_UGAP):
+                    init_state_fracs = np.random.dirichlet([1]*sspa_size)
+                    if init_index < existing_inits:
+                        continue
+                    mf_reward = compute_mf_reward(setting, init_state_fracs, priority_list, T_mf_simulation)
+                    simu_local_stable_data[policy_name][i].append(mf_reward)
+                    if mf_reward / setting.avg_reward_upper_bound < 0.99:
+                        print("setting id={}, policy={}, local stability eig={:0.4f}, unichain eig={:0.4f}, upper bound={:0.4f}, mf_reward={:0.4f}, opt ratio={:0.4f}".format(
+                            i, policy_name, setting.local_stab_eigval, setting.unichain_eigval, setting.avg_reward_upper_bound, mf_reward, mf_reward / setting.avg_reward_upper_bound))
+    # count the number of locally-stable non-UGAP instances
+    for policy_name in policy_names:
+        num_non_UGAP_local_stable = 0
+        num_mean_field_simulated = 0
+        for i, setting in enumerate(all_data["examples"]):
+            if i >= simulate_local_stable_up_to_ith:
+                break
+            if (setting is None) or (setting.local_stab_eigval > 1):
+                # only show the locally STABLE examples
+                continue
+            if np.any(np.array(simu_local_stable_data[policy_name][i]) / setting.avg_reward_upper_bound < UGAP_subopt_threshold):
+                print("Example {} is locally stable but non-UGAP".format(i))
+                num_non_UGAP_local_stable += 1
+            if len(simu_local_stable_data[policy_name][i]) > 0:
+                num_mean_field_simulated += 1
+        print("For policy {}, there are {} locally stable non-UGAP instances among {} random instances that has been simulated".format(
+            policy_name, num_non_UGAP_local_stable, num_mean_field_simulated))
+
     ## plot CDF of log hitting time in the SA assumption
     if plot_sa_hitting_time:
         all_hitting_times = []
@@ -569,6 +639,8 @@ def search_and_store_unstable_examples():
             pickle.dump(simu_data, f)
         with open(simu_ftva_file_path, "wb") as f:
             pickle.dump(simu_ftva_data, f)
+        with open(simu_local_stable_path, "wb") as f:
+            pickle.dump(simu_local_stable_data, f)
     else:
         print("no-update mode, example data not updated.")
     print("Finished!")
@@ -578,14 +650,12 @@ if __name__ == "__main__":
     np.random.seed(114514)
     np.set_printoptions(precision=3)
     np.set_printoptions(suppress=True)
-    # for alpha in [0.05, 0.1, 0.2, 0.5, 1]:
-        # count_locally_unstable(alpha)
-    # search_and_store_unstable_examples()
+    search_and_store_unstable_examples()
 
-    np.random.seed(42)
-    for i in range(8):
-        setting = rb_settings.RandomExample(sspa_size=8, distr="dirichlet", parameters=[1])
-        setting_path = "setting_data/random-size-8-uniform-({})".format(i)
-        if i >= 4:
-            save_bandit(setting, setting_path, None)
+    # np.random.seed(42)
+    # for i in range(8):
+    #     setting = rb_settings.RandomExample(sspa_size=8, distr="dirichlet", parameters=[1])
+    #     setting_path = "setting_data/random-size-8-uniform-({})".format(i)
+    #     if i >= 4:
+    #         save_bandit(setting, setting_path, None)
 

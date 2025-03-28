@@ -12,7 +12,7 @@ import multiprocessing as mp
 import bisect
 
 
-def run_policies(setting_name, policy_name, init_method, T, setting_path=None, Ns=None, skip_N_below=None, no_run=False, debug=False, note=None):
+def run_policies(setting_name, policy_name, init_method, T, setting_path=None, Ns=None, save_dir="fig_data", skip_N_below=None, no_run=False, debug=False, note=None):
     if setting_name == "eight-states":
         probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
@@ -93,9 +93,9 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
         return
 
     if note is None:
-        data_file_name = "fig_data/{}-{}-N{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method)
+        data_file_name = "{}/{}-{}-N{}-{}-{}".format(save_dir, setting_name, policy_name, Ns[0], Ns[-1], init_method)
     else:
-        data_file_name = "fig_data/{}-{}-N{}-{}-{}-{}".format(setting_name, policy_name, Ns[0], Ns[-1], init_method, note)
+        data_file_name = "{}/{}-{}-N{}-{}-{}-{}".format(save_dir, setting_name, policy_name, Ns[0], Ns[-1], init_method, note)
     if os.path.exists(data_file_name):
         # check the meta-data of the file that we want to overwrite
         with open(data_file_name, "rb") as f:
@@ -840,36 +840,32 @@ if __name__ == "__main__":
     #     for policy_name in ["lppriority"]: #, "id", "lppriority", "whittle", "ftva"]:
     #         run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=Ns, note="testing")
 
-    # figure_from_multiple_files_flexible_N()
-    figure_from_multiple_files()
 
-    # my_pool = mp.Pool(2)
-    #
-    # task_list = []
-    # Ns = list(range(200,1200,200)) + [1500] + list(range(2000, 12000,2000))
-    # for i in range(3,4):
-    #     setting_name = "random-size-8-uniform-({})".format(i)
-    #     setting_path = "setting_data/" + setting_name
-    #     setting = rb_settings.ExampleFromFile(setting_path)
-    #     for policy_name in ["id", "lppriority"]: #["twoset-faithful", "lppriority", "whittle"]:
-    #         # if policy_name == "twoset-faithful":
-    #         #     T = 320000
-    #         #     note = "T32e4"
-    #         # else:
-    #         #     T = 2560000
-    #         #     note = "T256e4"
-    #         T = 40000
-    #         note = "testing"
-    #         task_list.append(
-    #             my_pool.apply_async(run_policies, args=(setting_name, policy_name, "random", T, setting_path, Ns), kwds={"note": note})
-    #         )
-    #
-    # # for setting_name in ["new2-eight-states-045"]:
-    # #     for policy_name in ["twoset-faithful", "id", "lppriority", "whittle", "ftva"]:
-    # #         task_list.append(
-    # #             my_pool.apply_async(run_policies, args=(setting_name, policy_name, "bad", 40000), kwds={"Ns": Ns, "note":"T4e4"})
-    # #         )
-    #
-    # my_pool.close()
-    # my_pool.join()
-    #
+    my_pool = mp.Pool(6)
+
+    task_list = []
+    Ns = [10000]
+    for i in range(0, 35):
+        setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
+        setting_path = "setting_data/unselected/" + setting_name
+        if os.path.exists(setting_path):
+            setting = rb_settings.ExampleFromFile(setting_path)
+        else:
+            print("{} not found!!".format(setting_path))
+            continue
+        for policy_name in ["twoset-faithful", "ftva", "id", "lppriority", "whittle"]:
+            T = 80000
+            note = "T8e4"
+            cur_save_path = "{}/{}-{}-N{}-{}-{}-{}".format("fig_data_250327", setting_name, policy_name, Ns[0], Ns[-1], "random", note)
+            if (not os.path.exists(cur_save_path)) and (not (policy_name == "whittle")):
+                print(cur_save_path, "is not simulated yet")
+                # run_policies(setting_name, policy_name, "random", T, setting_path=setting_path, Ns=Ns, save_dir="fig_data_250327", no_run=False, note=note)
+                # print()
+                task_list.append(
+                    my_pool.apply_async(run_policies, args=(setting_name, policy_name, "random", T, setting_path, Ns),
+                                        kwds={"save_dir": "fig_data_250327", "note": note})
+                )
+
+    my_pool.close()
+    my_pool.join()
+

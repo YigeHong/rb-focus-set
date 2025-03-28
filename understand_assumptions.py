@@ -56,6 +56,7 @@ def search_and_store_unstable_examples():
     plot_subopt_cdf = False
     save_subopt_examples = False
     save_mix_examples = False
+    save_first_i_examples_unselected = 35
     unichain_threshold = 0.95
     plot_sa_hitting_time = False
     plot_sa_hitting_time_vs_opt = False
@@ -379,6 +380,25 @@ def search_and_store_unstable_examples():
             plt.savefig("formal_figs/nonugap-subopt-{}.pdf".format(name))
             plt.savefig("figs2/nonugap-subopt-{}-size-{}-{}.pdf".format(name, sspa_size, distr_and_parameter))
             plt.show()
+
+    ## save all examples up to specified i
+    if save_first_i_examples_unselected > 0:
+        for i, setting in enumerate(all_data["examples"]):
+            if setting is None:
+                continue
+            # if np.any(setting.y[:,0]+setting.y[:,1] < 1e-7):
+            #     # skip the ambiguous examples where the definition of local stability is not unique
+            #     continue
+            if i >= save_first_i_examples_unselected:
+                break
+            if not os.path.exists("setting_data/unselected"):
+                os.mkdir("setting_data/unselected")
+            setting_save_path =  "setting_data/unselected/random-size-{}-{}-({})".format(sspa_size, distr_and_parameter, i)
+            print("saving the example {} to {}".format(i, setting_save_path))
+            if os.path.exists(setting_save_path):
+                print(setting_save_path+" exists!")
+            else:
+                save_bandit(setting, setting_save_path, {"alpha":alpha})
 
     ## simulating unstable examples
     if do_simulation:

@@ -1469,8 +1469,6 @@ class TwoSetPolicy(object):
         assert np.allclose(N*act_frac, int(N*act_frac), atol=1e-7), "N={}, act_frac={}, N*act_frac={}".format(N, act_frac, N*act_frac)
         self.y = y
         self.U = U
-        self.U_sqrt = scipy.linalg.sqrtm(U)
-        self.lam_U = np.max(np.abs(np.linalg.eigvals(self.U)))
         self.EPS = 1e-7
         self.rounding = rounding
 
@@ -1486,16 +1484,21 @@ class TwoSetPolicy(object):
         assert np.all(np.isclose(np.sum(self.policy, axis=1), 1.0, atol=1e-4)), \
             "policy definition wrong, the action probs do not sum up to 1, policy = {} ".format(self.policy)
 
+        # precompute some quantities used for two-set policy or its degenerate version when locally unstable
         self.Sempty = np.where(self.state_probs <= self.EPS)[0]
         self.Sneu = np.where(np.all(self.y > self.EPS, axis=1))[0]
-        self.err_sempty = (len(self.Sempty)+1)/self.N
-        self.errrd = (1+2*np.sqrt(self.lam_U))*self.sspa_size / self.N
-        self.eta, self.errfe = self.compute_eta()
-        # errrd is too large, making the OL set empty unless N is huge
-        print("eta={}, errfe={}, errrd={}".format(self.eta, self.errfe, self.errrd))
         assert len(self.Sneu) <= 1
+        if self.U != np.inf:
+            # quantities that are only used when locally stable
+            self.U_sqrt = scipy.linalg.sqrtm(U)
+            self.lam_U = np.max(np.abs(np.linalg.eigvals(self.U)))
+            self.err_sempty = (len(self.Sempty)+1)/self.N
+            self.errrd = (1+2*np.sqrt(self.lam_U))*self.sspa_size / self.N
+            self.eta, self.errfe = self.compute_eta()
+            # errrd is too large, making the OL set empty unless N is huge
+            print("eta={}, errfe={}, errrd={}".format(self.eta, self.errfe, self.errrd))
 
-        # variables and parameters
+        # variables and parameters for optimization subproblmes
         if rounding == "direct":
             self.z = cp.Variable(self.sspa_size)
         elif rounding == "misocp":

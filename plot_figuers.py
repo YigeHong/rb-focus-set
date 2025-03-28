@@ -179,7 +179,7 @@ def figure_avg_over_settings(note=None):
                 # print(opt_gap_ratios_across_settings[policy_name][:,N_ind])
                 # print(np.sort(opt_gap_ratios_across_settings[policy_name][:,N_ind]))
                 # print(sorted(opt_gap_ratios_across_settings[policy_name][:,N_ind]))
-                cdf_jump_pts = sorted(opt_gap_ratios_across_settings[policy_name][:,N_ind])
+                cdf_jump_pts = sorted(opt_gap_ratios_across_settings[policy_name][:,N_ind]) * only_plot_N
                 plt.plot(cdf_jump_pts, np.linspace(0,1,len(cdf_jump_pts)),label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
                             marker=policy_markers[i], markersize=8, color=policy_colors[i])
             else:

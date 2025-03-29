@@ -840,8 +840,8 @@ if __name__ == "__main__":
     #     for policy_name in ["lppriority"]: #, "id", "lppriority", "whittle", "ftva"]:
     #         run_policies(setting_name, policy_name, "random", 40000, setting_path, Ns=Ns, note="testing")
 
-
-    my_pool = mp.Pool(6)
+    np.random.seed(1919810)
+    my_pool = mp.Pool(9)
 
     task_list = []
     Ns = [10000]
@@ -859,13 +859,13 @@ if __name__ == "__main__":
             cur_save_path = "{}/{}-{}-N{}-{}-{}-{}".format("fig_data_250327", setting_name, policy_name, Ns[0], Ns[-1], "random", note)
             if (not os.path.exists(cur_save_path)) and (not (policy_name == "whittle")):
                 print(cur_save_path, "is not simulated yet")
-                # run_policies(setting_name, policy_name, "random", T, setting_path=setting_path, Ns=Ns, save_dir="fig_data_250327", no_run=False, note=note)
+                run_policies(setting_name, policy_name, "random", T, setting_path=setting_path, Ns=Ns, save_dir="fig_data_250327", no_run=False, note=note)
                 # print()
-                task_list.append(
-                    my_pool.apply_async(run_policies, args=(setting_name, policy_name, "random", T, setting_path, Ns),
-                                        kwds={"save_dir": "fig_data_250327", "note": note})
-                )
+                # task_list.append(
+                #     my_pool.apply_async(run_policies, args=(setting_name, policy_name, "random", T, setting_path, Ns),
+                #                         kwds={"save_dir": "fig_data_250327", "note": note})
+                # )
 
-    my_pool.close()
-    my_pool.join()
+    # my_pool.close()
+    # my_pool.join()
 

@@ -4,6 +4,7 @@ the helper class for solving single-armed LPs and getting priorities,
 classes for RB policies,
 along with a few helper functions
 """
+import logging
 
 import numpy as np
 import cvxpy as cp
@@ -1488,7 +1489,7 @@ class TwoSetPolicy(object):
         self.Sempty = np.where(self.state_probs <= self.EPS)[0]
         self.Sneu = np.where(np.all(self.y > self.EPS, axis=1))[0]
         assert len(self.Sneu) <= 1
-        if self.U != np.inf:
+        if self.U is not np.inf:
             # quantities that are only used when locally stable
             self.U_sqrt = scipy.linalg.sqrtm(U)
             self.lam_U = np.max(np.abs(np.linalg.eigvals(self.U)))
@@ -1597,9 +1598,10 @@ class TwoSetPolicy(object):
                 problem = cp.Problem(objective, constrs)
                 try:
                     problem = solve_with_multiple_solvers(problem)
-                    if problem.status in ["infeasible", "unbounded"]:
+                    if problem.status in ["infeasible", "unbounded", "infeasible_inaccurate", "unbounded_inaccurate", "optimal_inaccurate"]:
                         # print("{}, choosing empty set".format(problem.status))
                         z_temp = np.zeros((self.sspa_size,))
+                        warnings.warn("Subproblem solving fails, status {}".format(problem.status))
                     else:
                         # print("{}, expanding".format(problem.status))
                         z_temp = self.z.value.copy()
@@ -1619,9 +1621,10 @@ class TwoSetPolicy(object):
             problem = cp.Problem(objective, constrs)
             try:
                 problem = solve_with_multiple_solvers(problem)
-                if problem.status in ["infeasible", "unbounded"]:
+                if problem.status in ["infeasible", "unbounded", "infeasible_inaccurate", "unbounded_inaccurate", "optimal_inaccurate"]:
                     # print("{}, choosing z_temp".format(problem.status))
                     z_OL = z_temp
+                    warnings.warn("Subproblem solving fails, status {}".format(problem.status))
                     #todo: somehow cvxpy often confuse infeasible with unbounded. It does not matter but still good to figure out why
                     #
                     # if problem.status == "unbounded":
@@ -1759,7 +1762,9 @@ class TwoSetPolicy(object):
             # print()
             rem_local_budget = local_budget - np.sum(actions)
             num_neutral_arms = len(s2indices_fs[self.Sneu[0]])
-            assert (rem_local_budget >= 0) and (rem_local_budget <= num_neutral_arms), "something is wrong, Optimal Local Control is not feasible"
+            assert (rem_local_budget >= 0) and (rem_local_budget <= num_neutral_arms), \
+                "something is wrong, Optimal Local Control is not feasible. rem_local_budget={}, num_neutral_arms={}, len(OL_set)={}, m={}, scountscaled={}, fscountscaled={}".format(
+                    rem_local_budget, num_neutral_arms, len(cur_OL_set), self.m.value, np.sum(self.s_count_scaled.value), np.sum(self.s_count_scaled_fs.value))
             actions[s2indices_fs[self.Sneu[0]][0:rem_local_budget]] = 1
             assert np.sum(actions[cur_OL_set]) == local_budget, "Local budget inconsistent: {}!={}".format(np.sum(actions[cur_OL_set]), local_budget)
 

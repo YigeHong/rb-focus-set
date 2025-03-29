@@ -11,6 +11,35 @@ import os
 import multiprocessing as mp
 import bisect
 
+
+def filter_settings(setting_names, setting_dir, have_local_unstable):
+    if have_local_unstable:
+        return setting_names
+    else:
+        new_setting_name_list = []
+        for setting_name in setting_names:
+            setting_path = os.path.join(setting_dir, setting_name)
+            setting = rb_settings.ExampleFromFile(setting_path)
+            analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, setting.suggest_act_frac)
+            y = analyzer.solve_lp()[1]
+            print("min(y(sneu,1), y(sneu,0)) = ", y2nondegeneracy(y))
+            W = analyzer.compute_W(abstol=1e-10)[0]
+            print("2*lambda_W = ", 2*np.linalg.norm(W, ord=2))
+            if setting_name == "eight-states":
+                priority_list = analyzer.solve_LP_Priority(fixed_dual=0)
+            else:
+                priority_list = analyzer.solve_LP_Priority()
+            print("priority list =", priority_list)
+            whittle_priority = analyzer.solve_whittles_policy()
+            print("Whittle priority=", whittle_priority)
+            U = analyzer.compute_U(abstol=1e-10)[0]
+            if U is not np.inf:
+                new_setting_name_list.append(setting_name)
+        return new_setting_name_list
+
+
+
+
 def figure_avg_over_settings(note=None):
     """
     Plotting function that reads data files with Ns to combine into one plot.
@@ -18,8 +47,16 @@ def figure_avg_over_settings(note=None):
     # setting names in the unichain aperiodicity paper: ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]
     # setting names in the exponential paper ["new2-eight-states-045"]+["conveyor-belt-nd-12"]+["random-size-8-uniform-({})".format(i) for i in [1, 6, 0]]
     # other possible settings ["random-size-8-uniform-({})".format(i) for i in [1]] # ["mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i) for i in [1436, 6265]] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4339]]#, 4149, 4116, 2667, 2270, 9632]]
-    settings = ["random-size-8-uniform-({})".format(i) for i in range(8)]
-    setting_batch_name = "randomto8"
+    setting_batch_name = "dirichlet10"
+    if setting_batch_name == "dirichlet10":
+        settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in range(35)]
+    elif setting_batch_name == "uniform8":
+        settings = ["random-size-8-uniform-({})".format(i) for i in range(8)]
+    else:
+        raise NotImplementedError
+    only_local_stable = True
+    if only_local_stable:
+        settings = filter_settings(settings, "setting_data/unselected", have_local_unstable=False)
     policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id", "twoset-v1", "twoset-faithful"]
     skip_policies =  ["setexp", "setexp-priority","twoset-v1"]
     linestyle_str = ["-.", "-", "--", "-.", "--", "-", "-", "-."]
@@ -35,15 +72,15 @@ def figure_avg_over_settings(note=None):
     batch_size = 8000 # only if batch_size_mode = "fixed"
     burn_in_batch = 1
     N_range = [200, 10000] # closed interval
-    agg_modes = ["avg", "median", "cdf"] # avg, median, cdf
+    agg_modes = ["cdf"] #["avg", "median", "cdf"] # avg, median, cdf
     only_plot_N = 10000
     init_method = "random"
-    file_dirs = ["fig_data_server_0922", "fig_data_server_0925"]
+    file_dirs = ["fig_data_server_0922", "fig_data_server_0925", "fig_data_250327"]
     N_tick_ratio = 1000
     tick_locs =  np.arange(0, 11000, 2000)
     tick_labels = [int(N/N_tick_ratio) for N in tick_locs]
     assert np.allclose(np.array(tick_labels)*N_tick_ratio, np.array(tick_locs)), print(tick_labels, tick_locs)
-    legend_on = False
+    legend_on = True
 
     all_batch_means = {}
     for setting_name in settings:
@@ -169,20 +206,25 @@ def figure_avg_over_settings(note=None):
 
     for agg_mode in agg_modes:
         Ns_common = np.array(Ns_common)
-        max_value_for_ylim = 0
-        for i, policy_name in enumerate(policies):
-            if policy_name in skip_policies:
-                continue
-            if agg_mode == "cdf":
+        if agg_mode == "cdf":
+            max_value_for_xlim = 0
+            for i, policy_name in enumerate(policies):
+                if policy_name in skip_policies:
+                    continue
                 N_ind = np.nonzero(Ns_common==only_plot_N)[0][-1]
                 # print("log", np.nonzero(Ns_common==only_plot_N))
                 # print(opt_gap_ratios_across_settings[policy_name][:,N_ind])
                 # print(np.sort(opt_gap_ratios_across_settings[policy_name][:,N_ind]))
                 # print(sorted(opt_gap_ratios_across_settings[policy_name][:,N_ind]))
-                cdf_jump_pts = sorted(opt_gap_ratios_across_settings[policy_name][:,N_ind]) * only_plot_N
+                cdf_jump_pts = np.sort(opt_gap_ratios_across_settings[policy_name][:,N_ind]) * only_plot_N
                 plt.plot(cdf_jump_pts, np.linspace(0,1,len(cdf_jump_pts)),label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
                             marker=policy_markers[i], markersize=8, color=policy_colors[i])
-            else:
+                max_value_for_xlim = max(max_value_for_xlim, np.max(cdf_jump_pts[-1]))
+        else:
+            max_value_for_ylim = 0
+            for i, policy_name in enumerate(policies):
+                if policy_name in skip_policies:
+                    continue
                 if agg_mode == "avg":
                     opt_gap_ratio_cur = np.average(opt_gap_ratios_across_settings[policy_name], axis=0)
                 elif agg_mode == "median":
@@ -196,6 +238,7 @@ def figure_avg_over_settings(note=None):
         if agg_mode == "cdf":
             plt.xlabel("Total optimality gap ratio", fontsize=20)
             plt.ylabel("CDF", fontsize=20)
+            plt.xlim((0, max_value_for_xlim*1.05))
         else:
             plt.xlabel("N (x{})".format(N_tick_ratio), fontsize=20)
             plt.xticks(ticks=tick_locs, labels=tick_labels, fontsize=20)
@@ -207,7 +250,10 @@ def figure_avg_over_settings(note=None):
         if legend_on:
             plt.legend(fontsize=20)
         agg_mode_with_param = agg_mode + str(only_plot_N) if agg_mode == "cdf" else agg_mode
-        plt.savefig("figs3/total-gap-ratio-{}-{}-N{}-{}-{}.png".format(setting_batch_name, agg_mode_with_param, N_range[0], N_range[1], init_method))
+        if only_local_stable:
+            plt.savefig("figs3/total-gap-ratio-{}-{}-N{}-{}-{}-onlyls.png".format(setting_batch_name, agg_mode_with_param, Ns_common[0], Ns_common[-1], init_method))
+        else:
+            plt.savefig("figs3/total-gap-ratio-{}-{}-N{}-{}-{}.png".format(setting_batch_name, agg_mode_with_param, Ns_common[0], Ns_common[-1], init_method))
         # plt.savefig("formal_figs_exponential/total-gap-ratio-{}.png".format(setting_batch_name))
         plt.show()
 

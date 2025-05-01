@@ -642,7 +642,7 @@ class FTVAPolicy(object):
         :return: actions, virtual_actions
         """
         # generate budget using randomized rounding
-        budget = round(self.N * self.act_frac)
+        budget = int(self.N * self.act_frac)
         budget += np.random.binomial(1, self.N * self.act_frac - budget)  # randomized rounding
         # generate virtual actions according to virtual states
         vs2indices = {state:None for state in self.sspa}
@@ -1467,7 +1467,7 @@ class TwoSetPolicy(object):
 
         self.N = N
         self.act_frac = act_frac
-        assert np.allclose(N*act_frac, int(N*act_frac), atol=1e-7), "N={}, act_frac={}, N*act_frac={}".format(N, act_frac, N*act_frac)
+        assert np.allclose(N*act_frac, round(N*act_frac), atol=1e-7), "N={}, act_frac={}, N*act_frac={}".format(N, act_frac, N*act_frac)
         self.y = y
         self.U = U
         self.EPS = 1e-7

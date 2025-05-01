@@ -56,7 +56,7 @@ def search_and_store_unstable_examples():
     plot_subopt_cdf = False
     save_subopt_examples = False
     save_mix_examples = False
-    save_first_i_examples_unselected = 35
+    save_first_i_examples_unselected = -1
     unichain_threshold = 0.95
     plot_sa_hitting_time = False
     plot_sa_hitting_time_vs_opt = False
@@ -561,8 +561,9 @@ def search_and_store_unstable_examples():
             if (setting is None) or (setting.local_stab_eigval > 1):
                 # only show the locally STABLE examples
                 continue
-            if np.any(np.array(simu_local_stable_data[policy_name][i]) / setting.avg_reward_upper_bound < UGAP_subopt_threshold):
-                print("Example {} is locally stable but non-UGAP".format(i))
+            worst_opt_ratio = np.min(np.array(simu_local_stable_data[policy_name][i]) / setting.avg_reward_upper_bound) if len(simu_local_stable_data[policy_name][i])>0 else 1
+            if worst_opt_ratio < UGAP_subopt_threshold:
+                print("Example {} is locally stable but {}-non-UGAP, with worst_opt_ratio={}".format(i, policy_name, worst_opt_ratio))
                 num_non_UGAP_local_stable += 1
             if len(simu_local_stable_data[policy_name][i]) > 0:
                 num_mean_field_simulated += 1

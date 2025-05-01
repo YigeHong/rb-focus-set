@@ -47,14 +47,14 @@ def figure_avg_over_settings(note=None):
     # setting names in the unichain aperiodicity paper: ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]
     # setting names in the exponential paper ["new2-eight-states-045"]+["conveyor-belt-nd-12"]+["random-size-8-uniform-({})".format(i) for i in [1, 6, 0]]
     # other possible settings ["random-size-8-uniform-({})".format(i) for i in [1]] # ["mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i) for i in [1436, 6265]] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4339]]#, 4149, 4116, 2667, 2270, 9632]]
-    setting_batch_name = "dirichlet10"
+    setting_batch_name = "uniform8"
     if setting_batch_name == "dirichlet10":
-        settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in range(35)]
+        settings = ["random-size-10-dirichlet-0.05-({})".format(i) for i in range(10) if i not in [5]]
     elif setting_batch_name == "uniform8":
-        settings = ["random-size-8-uniform-({})".format(i) for i in range(8)]
+        settings = ["random-size-8-uniform-({})".format(i) for i in range(10)] # if i not in [57,61,90,97,99]]
     else:
         raise NotImplementedError
-    only_local_stable = True
+    only_local_stable = False
     if only_local_stable:
         settings = filter_settings(settings, "setting_data/unselected", have_local_unstable=False)
     policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id", "twoset-v1", "twoset-faithful"]
@@ -72,10 +72,12 @@ def figure_avg_over_settings(note=None):
     batch_size = 8000 # only if batch_size_mode = "fixed"
     burn_in_batch = 1
     N_range = [200, 10000] # closed interval
-    agg_modes = ["cdf"] #["avg", "median", "cdf"] # avg, median, cdf
+    agg_modes = ["median", "avg"] #["avg", "median", "cdf"] # avg, median, cdf
+    x_scale = "symlog" # symlog or normal; only useful when agg_mode == "cdf"
+    use_single_trajectory = True
     only_plot_N = 10000
     init_method = "random"
-    file_dirs = ["fig_data_server_0922", "fig_data_server_0925", "fig_data_250327"]
+    file_dirs = ["fig_data_250331", "fig_data_server_0922", "fig_data_server_0925"] #["fig_data_250327"],
     N_tick_ratio = 1000
     tick_locs =  np.arange(0, 11000, 2000)
     tick_labels = [int(N/N_tick_ratio) for N in tick_locs]
@@ -119,25 +121,25 @@ def figure_avg_over_settings(note=None):
                         if N not in N2batch_means:
                             N2batch_means[N] = []
                             N_longest_T[N] = 0
-                        if N_longest_T[N] > setting_and_data["T"]:
+                        if use_single_trajectory and (setting_and_data["T"] < N_longest_T[N]):
                             continue
+                        if "save_mean_every" in setting_and_data:
+                            save_mean_every = setting_and_data["save_mean_every"]
                         else:
-                            if "save_mean_every" in setting_and_data:
-                                save_mean_every = setting_and_data["save_mean_every"]
-                            else:
-                                save_mean_every = 1
-                            if N_longest_T[N] == setting_and_data["T"]:
-                                continue #### only use one batch of data with largest horizon; comment out otherwise
-                                # print(setting_name, N, "appending data from ", file_path)
-                            else:
-                                N_longest_T[N] = setting_and_data["T"]
+                            save_mean_every = 1
+                        if N_longest_T[N] == setting_and_data["T"]:
+                            continue #### only use one batch of data with largest horizon; comment out otherwise
+                            # print(setting_name, N, "appending data from ", file_path)
+                        else:
+                            N_longest_T[N] = setting_and_data["T"]
+                            if use_single_trajectory:
                                 N2batch_means[N] = []
                                 print(setting_name, N, "replaced with data from ", file_path)
-                            if batch_size_mode == "adaptive":
-                                batch_size = round(N_longest_T[N] / 20)
-                            assert batch_size % save_mean_every == 0, "batch size is not a multiple of save_mean_every={}".format(save_mean_every)
-                            for t in range(round(batch_size / save_mean_every)*burn_in_batch, round(setting_and_data["T"] / save_mean_every), round(batch_size / save_mean_every)):
-                                N2batch_means[N].append(np.mean(setting_and_data["full_reward_trace"][(i,N)][t:(t+round(batch_size / save_mean_every))]))
+                        if batch_size_mode == "adaptive":
+                            batch_size = round(N_longest_T[N] / 20)
+                        assert batch_size % save_mean_every == 0, "batch size is not a multiple of save_mean_every={}".format(save_mean_every)
+                        for t in range(round(batch_size / save_mean_every)*burn_in_batch, round(setting_and_data["T"] / save_mean_every), round(batch_size / save_mean_every)):
+                            N2batch_means[N].append(np.mean(setting_and_data["full_reward_trace"][(i,N)][t:(t+round(batch_size / save_mean_every))]))
             for N in N2batch_means:
                 N2batch_means[N] = np.array(N2batch_means[N])
             all_batch_means[(setting_name,policy_name)] = N2batch_means
@@ -150,44 +152,45 @@ def figure_avg_over_settings(note=None):
 
     for setting_id, setting_name in enumerate(settings):
         upper_bound = all_batch_means[(setting_name, "upper bound")]
-        if setting_name in setting2truncate:
-            truncate_level = setting2truncate[setting_name]
-        else:
-            truncate_level = truncate_level_default
-        # if mode == "opt-ratio":
-        #     plt.plot([N_range[0], N_range[1]], np.array([1, 1]), label="Upper bound", linestyle="--", color="k")
         for policy_name in policies:
-            if (policy_name == "whittle") and ((setting_name, policy_name) not in all_batch_means):
-                continue
+            # if (setting_name, policy_name) not in all_batch_means:
+            #     continue
             if policy_name in skip_policies:
                 continue
-            else:
-                Ns_cur = []
-                avg_rewards_cur = []
-                # yerrs_cur = []
-                cur_policy_batch_means = all_batch_means[(setting_name, policy_name)]
-                for N in cur_policy_batch_means:
-                    Ns_cur.append(N)
-                    avg_rewards_cur.append(np.mean(cur_policy_batch_means[N]))
-                    # yerrs_cur.append(1.96 * np.std(cur_policy_batch_means[N]) / np.sqrt(len(cur_policy_batch_means[N])))
-                Ns_cur = np.array(Ns_cur)
-                avg_rewards_cur = np.array(avg_rewards_cur)
-                # yerrs_cur = np.array(yerrs_cur)
-                sorted_indices = np.argsort(Ns_cur)
-                Ns_cur_sorted = Ns_cur[sorted_indices]
-                avg_rewards_cur_sorted = avg_rewards_cur[sorted_indices]
-                # yerrs_cur_sorted = yerrs_cur[sorted_indices]
-                print(setting_name, policy_name, avg_rewards_cur_sorted)
+            if len(Ns_common) == 0: # the first (setting, policy) pair
+                Ns_common = sorted(list(all_batch_means[(setting_name, policy_name)].keys()))
+                print("initial Ns common", Ns_common)
+            if policy_name not in opt_gap_ratios_across_settings:
+                opt_gap_ratios_across_settings[policy_name] = np.ones((len(settings), len(Ns_common)))
+            if (policy_name == "whittle"):
+                # print("non indexable whittle shape", all_batch_means[setting_name, policy_name].keys())
+                if ((setting_name, policy_name) not in all_batch_means):
+                    opt_gap_ratios_across_settings[policy_name][setting_id,:] = 1
+                    print("non-indexable")
+                    continue
+            Ns_cur = []
+            avg_rewards_cur = []
+            # yerrs_cur = []
+            cur_policy_batch_means = all_batch_means[(setting_name, policy_name)]
+            for N in cur_policy_batch_means:
+                Ns_cur.append(N)
+                avg_rewards_cur.append(np.mean(cur_policy_batch_means[N]))
+                # yerrs_cur.append(1.96 * np.std(cur_policy_batch_means[N]) / np.sqrt(len(cur_policy_batch_means[N])))
+            Ns_cur = np.array(Ns_cur)
+            avg_rewards_cur = np.array(avg_rewards_cur)
+            # yerrs_cur = np.array(yerrs_cur)
+            sorted_indices = np.argsort(Ns_cur)
+            Ns_cur_sorted = Ns_cur[sorted_indices]
+            avg_rewards_cur_sorted = avg_rewards_cur[sorted_indices]
+            # yerrs_cur_sorted = yerrs_cur[sorted_indices]
+            print(setting_name, policy_name, avg_rewards_cur_sorted)
 
-                if len(Ns_common) == 0: # the first (setting, policy) pair
-                    Ns_common = Ns_cur_sorted
-                if policy_name not in opt_gap_ratios_across_settings:
-                    opt_gap_ratios_across_settings[policy_name] = np.zeros((len(settings), len(Ns_common)))
-                for N_ind, N in enumerate(Ns_common):
-                    if N not in Ns_cur_sorted:
-                        opt_gap_ratios_across_settings[policy_name][setting_id,N_ind] = np.nan # no data, set to nan
-                    else:
-                        opt_gap_ratios_across_settings[policy_name][setting_id,N_ind] += 1 - avg_rewards_cur_sorted[N_ind] / upper_bound
+            for N_ind, N in enumerate(Ns_common):
+                if N not in Ns_cur_sorted:
+                    opt_gap_ratios_across_settings[policy_name][setting_id,N_ind] = np.nan # no data, set to nan
+                else:
+                    print(setting_name, policy_name, opt_gap_ratios_across_settings[policy_name].shape, avg_rewards_cur_sorted.shape, avg_rewards_cur.shape, setting_id, N_ind)
+                    opt_gap_ratios_across_settings[policy_name][setting_id,N_ind] = 1 - avg_rewards_cur_sorted[N_ind] / upper_bound
 
     # pop N that lacks data for some (setting, policy) pair
     ind_to_pop = []
@@ -198,6 +201,7 @@ def figure_avg_over_settings(note=None):
             if np.isnan(opt_gap_ratios_across_settings[policy_name][:,N_ind]).any():
                 ind_to_pop.append(N_ind)
     for N_ind in sorted(ind_to_pop, reverse=True):
+        print("Ns_common", Ns_common)
         Ns_common.pop(N_ind)
         for policy_name in policies:
             if policy_name in skip_policies:
@@ -212,13 +216,11 @@ def figure_avg_over_settings(note=None):
                 if policy_name in skip_policies:
                     continue
                 N_ind = np.nonzero(Ns_common==only_plot_N)[0][-1]
-                # print("log", np.nonzero(Ns_common==only_plot_N))
-                # print(opt_gap_ratios_across_settings[policy_name][:,N_ind])
-                # print(np.sort(opt_gap_ratios_across_settings[policy_name][:,N_ind]))
-                # print(sorted(opt_gap_ratios_across_settings[policy_name][:,N_ind]))
                 cdf_jump_pts = np.sort(opt_gap_ratios_across_settings[policy_name][:,N_ind]) * only_plot_N
-                plt.plot(cdf_jump_pts, np.linspace(0,1,len(cdf_jump_pts)),label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
-                            marker=policy_markers[i], markersize=8, color=policy_colors[i])
+                # if x_scale == "log2":
+                #     cdf_jump_pts = np.log2(cdf_jump_pts)
+                plt.plot(cdf_jump_pts, np.linspace(0,1,len(settings)),label=policy2label[policy_name], linewidth=1.5, linestyle="-",
+                        color=policy_colors[i])
                 max_value_for_xlim = max(max_value_for_xlim, np.max(cdf_jump_pts[-1]))
         else:
             max_value_for_ylim = 0
@@ -231,14 +233,19 @@ def figure_avg_over_settings(note=None):
                     opt_gap_ratio_cur = np.median(opt_gap_ratios_across_settings[policy_name], axis=0)
                 else:
                     raise NotImplementedError
+                print(Ns_common, opt_gap_ratio_cur)
                 plt.plot(Ns_common, opt_gap_ratio_cur * Ns_common,label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
                             marker=policy_markers[i], markersize=8, color=policy_colors[i])
-                max_value_for_ylim = max(max_value_for_ylim, np.max(opt_gap_ratio_cur * Ns_common))
+                if policy_name not in ["whittle"]:
+                    max_value_for_ylim = max(max_value_for_ylim, np.max(opt_gap_ratio_cur * Ns_common))
 
         if agg_mode == "cdf":
+            if x_scale == "symlog":
+                plt.xscale('symlog', linthresh=100)
+                plt.xticks(ticks=[0,20,40,60,80,100,1000,10000], labels=[0,20,40,60,80,100,1000,10000])
             plt.xlabel("Total optimality gap ratio", fontsize=20)
-            plt.ylabel("CDF", fontsize=20)
             plt.xlim((0, max_value_for_xlim*1.05))
+            plt.ylabel("CDF", fontsize=20)
         else:
             plt.xlabel("N (x{})".format(N_tick_ratio), fontsize=20)
             plt.xticks(ticks=tick_locs, labels=tick_labels, fontsize=20)
@@ -249,7 +256,7 @@ def figure_avg_over_settings(note=None):
         plt.grid()
         if legend_on:
             plt.legend(fontsize=20)
-        agg_mode_with_param = agg_mode + str(only_plot_N) if agg_mode == "cdf" else agg_mode
+        agg_mode_with_param = agg_mode + str(only_plot_N) + x_scale if agg_mode == "cdf" else agg_mode
         if only_local_stable:
             plt.savefig("figs3/total-gap-ratio-{}-{}-N{}-{}-{}-onlyls.png".format(setting_batch_name, agg_mode_with_param, Ns_common[0], Ns_common[-1], init_method))
         else:

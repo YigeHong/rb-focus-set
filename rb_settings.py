@@ -3,6 +3,7 @@ import pickle
 from discrete_RB import SingleArmAnalyzer
 from matplotlib import pyplot as plt
 import warnings
+import os
 
 class Gast20Example1(object):
     def __init__(self):
@@ -698,3 +699,16 @@ if __name__ == '__main__':
     np.set_printoptions(precision=3)
     np.set_printoptions(linewidth=600)
     np.set_printoptions(suppress=True)
+
+    sspa_size = 8
+    distr = "uniform"
+    for i in range(100):
+        setting = RandomExample(sspa_size, distr)
+        if not os.path.exists("setting_data/unselected"):
+            os.mkdir("setting_data/unselected")
+        setting_save_path =  "setting_data/unselected/random-size-{}-{}-({})".format(sspa_size, distr, i)
+        if os.path.exists(setting_save_path):
+            print(setting_save_path+" exists!")
+        else:
+            save_bandit(setting, setting_save_path, {"alpha":setting.suggest_act_frac})
+            print("saving the example {} to {}".format(i, setting_save_path))

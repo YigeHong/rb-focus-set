@@ -590,6 +590,25 @@ class RandomTBPolicy(object):
 
         return actions
 
+    def get_sa_pair_fracs(self, cur_state_fracs):
+        sa_pair_fracs = np.zeros((self.sspa_size, 2))
+        sa_pair_fracs_ideal = np.zeros((self.sspa_size, 2))
+        for s in range(self.sspa_size):
+            for a in range(2):
+                sa_pair_fracs_ideal[s,a] = cur_state_fracs[s] * self.policy[s,a]
+        total_request = np.sum(sa_pair_fracs_ideal[:,1])
+        if total_request > self.act_frac:
+            ratio_kept = self.act_frac / total_request
+            a_to_reduce = 1
+        else:
+            ratio_kept = (1-self.act_frac) / (1-total_request)
+            a_to_reduce = 0
+        for s in range(self.sspa_size):
+            sa_pair_fracs[s,a_to_reduce] = sa_pair_fracs_ideal[s,a_to_reduce] * ratio_kept
+            sa_pair_fracs[s,1-a_to_reduce] = sa_pair_fracs_ideal[s,1-a_to_reduce] + sa_pair_fracs_ideal[s,a_to_reduce] * (1-ratio_kept)
+        # assert np.sum(sa_pair_fracs[:,1]) == self.act_frac, f"{np.sum(sa_pair_fracs[:,1])} vs {self.act_frac}"
+
+        return sa_pair_fracs
 
 class FTVAPolicy(object):
     """

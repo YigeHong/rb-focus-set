@@ -117,6 +117,17 @@ class RandomExample(object):
             R1 = np.random.dirichlet(alphas, 1)[0,:]
             P0 = P0 * (P0 >= 1e-7)
             P1 = P1 * (P1 >= 1e-7)
+        elif distr == "dirichlet-uniform-nzR0":
+            if len(parameters) == 1:
+                alphas = [parameters[0]] * self.sspa_size
+            else:
+                alphas = parameters
+            P0 = np.random.dirichlet(alphas, self.sspa_size)
+            P1 = np.random.dirichlet(alphas, self.sspa_size)
+            R0 = np.random.uniform(0, 1, size=(self.sspa_size, ))
+            R1 = np.random.uniform(0, 1, size=(self.sspa_size, ))
+            P0 = P0 * (P0 >= 1e-7)
+            P1 = P1 * (P1 >= 1e-7)
         else:
             raise NotImplementedError
         P0 = P0 / np.sum(P0, axis=1, keepdims=True)

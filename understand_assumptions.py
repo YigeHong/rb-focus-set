@@ -49,7 +49,7 @@ def analyze_new_reward_modif(setting, direction):
 
 
 def search_and_store_unstable_examples():
-    ## output settings
+    ### output settings
     num_examples = 10000
     num_reward_modif_examples = 0
     make_scatter_plot = False
@@ -67,13 +67,13 @@ def search_and_store_unstable_examples():
     N = 500
     simu_thousand_steps = 20 # simulate 1000*simu_thousand_steps many time steps
     policy_names = ["lppriority", "whittle"]
-    # simulation button for priority policies
+    ## simulation button for priority policies
     do_simulation = False
     simulate_up_to_ith = 10000 # only simulate the first simulate_up_to_ith examples that are non-UGAP
-    # simulation button for FTVA
+    ## simulation button for FTVA
     do_ftva_simulation = False
     simulate_ftva_up_to_ith = 500
-    # simulate mean-field dynamics for locally stable examples
+    ## simulate mean-field dynamics for locally stable examples
     do_local_stable_simulation = False
     simulate_local_stable_up_to_ith = 10000
     num_inits_for_test_UGAP = 10
@@ -81,14 +81,14 @@ def search_and_store_unstable_examples():
     UGAP_subopt_threshold = 0.99
     ## hyperparameters
     sspa_size = 10
-    distr = "dirichlet" #"uniform", "dirichlet", "CL
+    distr = "dirichlet" #"uniform", "dirichlet", "CL", "dirichlet-uniform-nzR0"
     laziness = None
-    alpha = 0.05
+    alpha = 0.2
     beta = 4 # > 3
     distr_and_parameter = distr
     if distr == "uniform":
         pass
-    elif distr == "dirichlet":
+    elif distr in ["dirichlet", "dirichlet-uniform-nzR0"]:
         distr_and_parameter += "-" + str(alpha)
     elif distr == "CL":
         distr_and_parameter += "-" + str(beta)
@@ -99,14 +99,14 @@ def search_and_store_unstable_examples():
     # check if exists: if so, load data; if not, create new
     if not os.path.exists("random_example_data"):
         os.mkdir("random_example_data")
-    # load data of random examples
+    ## load data of random examples
     file_path = "random_example_data/random-{}-{}".format(sspa_size, distr_and_parameter)
     if os.path.exists(file_path):
         with open(file_path, "rb") as f:
             all_data = pickle.load(f)
         assert all_data["sspa_size"] == sspa_size
         assert all_data["distr"] == distr
-        if distr == "dirichlet":
+        if distr in ["dirichlet", "dirichlet-uniform-nzR0"]:
             assert all_data["alpha"] == alpha
         if distr == "CL":
             assert all_data["beta"] == beta
@@ -121,7 +121,7 @@ def search_and_store_unstable_examples():
         all_data["laziness"] = laziness
         all_data["examples"] = []
         all_data["is_sa"] = []
-    # load data of simulations
+    ## load data of simulations
     simu_file_path = "random_example_data/simu-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
     if os.path.exists(simu_file_path):
         with open(simu_file_path, "rb") as f:
@@ -134,7 +134,7 @@ def search_and_store_unstable_examples():
         for policy_name in policy_names:
             simu_data[policy_name] = [[] for i in range(num_examples)]
             simu_data[(policy_name+"-final-state")] =  [None for i in range(num_examples)]
-    # load data of ftva simulation
+    ## load data of ftva simulation
     simu_ftva_file_path = "random_example_data/simu-ftva-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
     if os.path.exists(simu_ftva_file_path):
         with open(simu_ftva_file_path, "rb") as f:
@@ -144,7 +144,7 @@ def search_and_store_unstable_examples():
         simu_ftva_data["N"] = N
         simu_ftva_data["FTVA"] = [[] for i in range(num_examples)]
         simu_ftva_data["FTVA-final-state"] = [None for i in range(num_examples)]
-    # load data of mean-field simulation of locally stable examples
+    ## load data of mean-field simulation of locally stable examples
     simu_local_stable_path = "random_example_data/simu-local-stable-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
     if os.path.exists(simu_local_stable_path):
         with open(simu_local_stable_path, "rb") as f:
@@ -155,14 +155,14 @@ def search_and_store_unstable_examples():
         for policy_name in policy_names:
             simu_local_stable_data[policy_name] = [[] for i in range(num_examples)]
 
-    # mode: search for new examples? add reward modification to existing example?
+    ## generate and save new examples given the hyperparameters above
     num_exist_examples = len(all_data["examples"])
     if num_exist_examples < num_examples:
         if distr == "CL":
             B = ChungLuBeta2B(beta)
         # generate more examples if not enough
         for i in range(num_examples):
-            if distr in ["uniform", "dirichlet"]:
+            if distr in ["uniform", "dirichlet", "dirichlet-uniform-nzR0"]:
                 setting = RandomExample(sspa_size, distr, laziness=laziness, parameters=[alpha])
             elif distr == "CL":
                 setting = ChungLuRandomExample(sspa_size, beta, B)
@@ -176,20 +176,26 @@ def search_and_store_unstable_examples():
                     continue
                 analyzer = result[0]
                 setting.avg_reward_upper_bound = analyzer.opt_value
-                setting.y = analyzer.y.copy
+                setting.y = analyzer.y.value.copy()
                 setting.lp_priority = analyzer.solve_LP_Priority(verbose=False)
                 setting.whittle_priority = analyzer.solve_whittles_policy()
                 setting.unichain_eigval = result[1]
                 setting.local_stab_eigval = result[2]
-                print(setting.avg_reward_upper_bound, setting.lp_priority, setting.whittle_priority, setting.unichain_eigval, setting.local_stab_eigval)
+                print(f"{i}-th example, LP upper bound={setting.avg_reward_upper_bound}, LP Priority={setting.lp_priority}, "
+                      f"Whittle priority={setting.whittle_priority}, P_pi_radius={setting.unichain_eigval}, Phi_radius={setting.local_stab_eigval}")
                 all_data["examples"].append(setting)
-    # for i, setting in enumerate(all_data["examples"]):
-    #     if setting is None:
-    #         continue
-    #     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, setting.suggest_act_frac)
-    #     y = analyzer.solve_lp(verbose=False)[1]
-    #     setting.y = y.copy()
-    # For the locally unstable examples, run the mean-field limit reward, and generate reward modification
+
+    ## calculate the average sparsity
+    P_nnz_entries_total = 0
+    num_rows_total = 0
+    for i in range(len(all_data["examples"])):
+        setting = all_data["examples"][i]
+        if setting is not None:
+            P_nnz_entries_total += np.sum(setting.trans_tensor > 0)
+            num_rows_total += setting.sspa_size**2 * 2
+    print(f"Average percent of non-zero entries = {P_nnz_entries_total / num_rows_total}")
+
+    ## For the locally unstable examples, run the mean-field limit reward, and generate reward modification
     for i, setting in enumerate(all_data["examples"]):
         if setting is None:
             continue
@@ -216,7 +222,7 @@ def search_and_store_unstable_examples():
                         new_reward_modif = analyze_new_reward_modif(setting, direction)
                         setting.reward_modifs.append(new_reward_modif)
 
-    # calculate hitting time to determine if the example satisfies sa
+    ## calculate hitting time to determine if the example satisfies sa
     max_recent_hitting_time = 0
     for i, setting in enumerate(all_data["examples"]):
         if i%100 == 0:
@@ -284,102 +290,8 @@ def search_and_store_unstable_examples():
         # plt.title("{}, unichain thresh {}, unstable / unichain = {} / {}".format(distr_and_parameter, unichain_threshold, unstable_unichain_count, unichain_count))
         plt.tight_layout()
         plt.savefig("figs2/eigen-scatter-{}-size-{}.pdf".format(distr_and_parameter, sspa_size))
-        plt.savefig("formal_figs/eigen-{}.pdf".format(distr_and_parameter))
+        # plt.savefig("formal_figs/eigen-{}.pdf".format(distr_and_parameter))
         plt.show()
-
-    ## calculating subopt ratios for unstable examples
-    subopt_ratios = []
-    subopt_ratios_w = []
-    for i, setting in enumerate(all_data["examples"]):
-        if setting is None:
-            continue
-        if np.any(setting.y[:,0]+setting.y[:,1] < 1e-7):
-            # skip the ambiguous examples where the definition of local stability is not unique
-            continue
-        if i >= simulate_up_to_ith:
-            continue
-        if (setting.local_stab_eigval > 1) and (setting.unichain_eigval < 1):
-            # print("the {}-th example is locally unstable".format(i))
-            if np.any(setting.y[:,1]+setting.y[:,0]<1e-7):
-                print(setting.y[:,1]+setting.y[:,0])
-            # subopt_ratio = setting.avg_reward_lpp_mf_limit / setting.avg_reward_upper_bound
-            # subopt_ratio_w = setting.avg_reward_whittle_mf_limit / setting.avg_reward_upper_bound
-            subopt_ratio = np.average(np.array(simu_data["lppriority"][i])) / setting.avg_reward_upper_bound
-            subopt_ratio_w = np.average(np.array(simu_data["whittle"][i])) / setting.avg_reward_upper_bound
-            subopt_ratios.append(subopt_ratio)
-            subopt_ratios_w.append(subopt_ratio_w)
-            if (subopt_ratio < 0.9) and (subopt_ratio_w < 0.9):
-                # print("In the {}-th example, lp index is {}-optimal, Whittle index is {}-suboptimal, rho(Phi)={}".format(i, subopt_ratio, subopt_ratio_w, setting.local_stab_eigval))
-                setting_save_path =  "setting_data/local_unstable_subopt/random-size-{}-{}-({})".format(sspa_size, distr_and_parameter, i)
-                # save suboptimal examples
-                if save_subopt_examples:
-                    print("saving the example...")
-                    if os.path.exists(setting_save_path):
-                        print(setting_save_path+" exists!")
-                    else:
-                        save_bandit(setting, setting_save_path, {"alpha":alpha})
-                # find a nearly unstable and suboptimal example and save its interpolation with a stable example.
-                if save_mix_examples and (setting.local_stab_eigval < 1.05):
-                    print("In the {}-th example, lp index is {}-optimal, Whittle index is {}-suboptimal, rho(Phi)={}".format(i, subopt_ratio, subopt_ratio_w, setting.local_stab_eigval))
-                    stable_setting_index = 2270
-                    stable_setting = all_data["examples"][stable_setting_index]
-                    keep_ratio = 0.95
-                    new_setting = rb_settings.RandomExample(sspa_size, distr, parameters=[alpha])
-                    new_setting.distr = "mix"
-                    new_setting.trans_tensor = keep_ratio*setting.trans_tensor + (1-keep_ratio)*stable_setting.trans_tensor
-                    new_setting.reward_tensor = keep_ratio*setting.reward_tensor + (1-keep_ratio)*stable_setting.reward_tensor
-                    new_setting.suggest_act_frac = keep_ratio*setting.suggest_act_frac + (1-keep_ratio)*stable_setting.suggest_act_frac
-                    new_setting.suggest_act_frac = int(100*new_setting.suggest_act_frac) / 100
-                    result = compute_P_and_Phi_eigvals(new_setting)
-                    if result is None:
-                        print("{}({})+{}({}) has ambiguous stability".format(keep_ratio, i, 1-keep_ratio, stable_setting_index))
-                    else:
-                        analyzer = result[0]
-                        new_setting.avg_reward_upper_bound = analyzer.opt_value
-                        new_setting.y = analyzer.y.copy
-                        new_setting.lp_priority = analyzer.solve_LP_Priority(verbose=False)
-                        new_setting.whittle_priority = analyzer.solve_whittles_policy()
-                        new_setting.unichain_eigval = result[1]
-                        new_setting.local_stab_eigval = result[2]
-                        print("{}({})+{}({}): upper bound={}, unichain_eigval={}, rho(Phi)={}".format(keep_ratio, i, 1-keep_ratio, stable_setting_index,
-                                                        new_setting.avg_reward_upper_bound, new_setting.unichain_eigval, new_setting.local_stab_eigval))
-                        setting_save_path = "setting_data/mix-random-size-{}-{}-({})-({})-ratio-{}".format(sspa_size, distr_and_parameter, i, stable_setting_index, keep_ratio)
-                        if (new_setting.local_stab_eigval < 1) and (new_setting.local_stab_eigval > 0.9):
-                            save_bandit(new_setting, setting_save_path, None)
-
-
-    print("{} examples are locally unstable".format(len(subopt_ratios)))
-
-    ## visualize percentage of subopt examples
-    if plot_subopt_cdf:
-        name_data_dict = {"lpp":subopt_ratios, "whittle":subopt_ratios_w,
-                          "max":[max(subopt_ratios[i], subopt_ratios_w[i]) for i in range(len(subopt_ratios))]}
-        for name, data in name_data_dict.items():
-            fig = plt.figure()
-            ax = fig.add_subplot(111)
-            fig.subplots_adjust(top=0.8)
-            data.append(0)
-            data = np.sort(data)
-            print(bisect(data, 0.9) / len(data), bisect(data, 0.95) / len(data))
-            ax.plot(data, np.linspace(0, 1, len(subopt_ratios)), color="b")
-            ax.grid()
-            # ax.hist(subopt_ratios, bins=20, weights=np.ones(len(subopt_ratios)) / len(subopt_ratios))
-            if name == "lpp":
-                full_name = "LP index"
-            elif name == "whittle":
-                full_name = "Whittle index"
-            elif name == "max":
-                full_name = "max of two indices"
-            # title=ax.set_title("Size-{}-{} \n Subopt of {}'s avg reward when N={} among {} non-UGAP examples\n ".format(sspa_size, distr_and_parameter, full_name, N, len(subopt_ratios)))
-            # title.set_y(1.05)
-            plt.ylabel("CDF", fontsize=22)
-            plt.xlabel("Optimality ratio", fontsize=22)
-            plt.xticks(fontsize=22, ticks=np.arange(0, 1.2, step=0.2))
-            plt.yticks(fontsize=22)
-            fig.tight_layout()
-            plt.savefig("formal_figs/nonugap-subopt-{}.pdf".format(name))
-            plt.savefig("figs2/nonugap-subopt-{}-size-{}-{}.pdf".format(name, sspa_size, distr_and_parameter))
-            plt.show()
 
     ## save all examples up to specified i
     if save_first_i_examples_unselected > 0:
@@ -411,6 +323,11 @@ def search_and_store_unstable_examples():
                     # only simulate the locally unstable and unichain examples
                     continue
                 print("Simulating the {}-th setting, policy={}".format(i, policy_name))
+                # increase the lists simu_data[policy_name] and simu_data[(policy_name+"-final-state")] if not long enough
+                while i >= len(simu_data[policy_name]):
+                    simu_data[policy_name].append([])
+                while i >= len(simu_data[(policy_name+"-final-state")]):
+                    simu_data[(policy_name+"-final-state")].append(None)
                 # set up the example
                 setting = all_data["examples"][i]
                 act_frac = setting.suggest_act_frac
@@ -422,14 +339,15 @@ def search_and_store_unstable_examples():
                     priority_list = analyzer.solve_whittles_policy()
                     if type(priority_list) is int:
                         # if non-indexable or multichain, just set the reward of whittle index to be zero
-                        simu_data[policy_name][i] = [0 for i in range(simu_thousand_steps)]
+                        simu_data[policy_name][i] = [0 for j in range(simu_thousand_steps)]
                         continue
                 else:
                     raise NotImplementedError
                 policy = PriorityPolicy(setting.sspa_size, priority_list, N=N, act_frac=act_frac)
                 if len(simu_data[policy_name][i]) < simu_thousand_steps:
-                    # restore the final state
+                    # restore the last state
                     if (simu_data[(policy_name+"-final-state")][i] is None) or (len(simu_data[policy_name][i]) == 0):
+                        # no last state to restore, initialize new state
                         last_states = np.random.choice(np.arange(0, setting.sspa_size), N, replace=True)
                     else:
                         last_states = simu_data[(policy_name+"-final-state")][i]
@@ -459,6 +377,100 @@ def search_and_store_unstable_examples():
                     sum(simu_data[policy_name][i])/simu_thousand_steps,
                     np.std(np.array(simu_data[policy_name][i])) / np.sqrt(simu_thousand_steps))
                 )
+
+    if plot_subopt_cdf or save_mix_examples or save_subopt_examples:
+        ## calculating subopt ratios for unstable examples
+        subopt_ratios = []
+        subopt_ratios_w = []
+        for i, setting in enumerate(all_data["examples"]):
+            if setting is None:
+                continue
+            if np.any(setting.y[:,0]+setting.y[:,1] < 1e-7):
+                # skip the ambiguous examples where the definition of local stability is not unique
+                continue
+            if i >= simulate_up_to_ith:
+                break
+            if (setting.local_stab_eigval > 1) and (setting.unichain_eigval < 1):
+                # print("the {}-th example is locally unstable".format(i))
+                if np.any(setting.y[:,1]+setting.y[:,0]<1e-7):
+                    print(setting.y[:,1]+setting.y[:,0])
+                # subopt_ratio = setting.avg_reward_lpp_mf_limit / setting.avg_reward_upper_bound
+                # subopt_ratio_w = setting.avg_reward_whittle_mf_limit / setting.avg_reward_upper_bound
+                subopt_ratio = np.average(np.array(simu_data["lppriority"][i])) / setting.avg_reward_upper_bound
+                subopt_ratio_w = np.average(np.array(simu_data["whittle"][i])) / setting.avg_reward_upper_bound
+                subopt_ratios.append(subopt_ratio)
+                subopt_ratios_w.append(subopt_ratio_w)
+                if (subopt_ratio < 0.9) and (subopt_ratio_w < 0.9):
+                    # print("In the {}-th example, lp index is {}-optimal, Whittle index is {}-suboptimal, rho(Phi)={}".format(i, subopt_ratio, subopt_ratio_w, setting.local_stab_eigval))
+                    setting_save_path =  "setting_data/local_unstable_subopt/random-size-{}-{}-({})".format(sspa_size, distr_and_parameter, i)
+                    ## save suboptimal examples
+                    if save_subopt_examples:
+                        print("saving the example...")
+                        if os.path.exists(setting_save_path):
+                            print(setting_save_path+" exists!")
+                        else:
+                            save_bandit(setting, setting_save_path, {"alpha":alpha})
+                    ## find a nearly unstable and suboptimal example and save its interpolation with a stable example.
+                    if save_mix_examples and (setting.local_stab_eigval < 1.05):
+                        print("In the {}-th example, lp index is {}-optimal, Whittle index is {}-suboptimal, rho(Phi)={}".format(i, subopt_ratio, subopt_ratio_w, setting.local_stab_eigval))
+                        stable_setting_index = 2270
+                        stable_setting = all_data["examples"][stable_setting_index]
+                        keep_ratio = 0.95
+                        new_setting = rb_settings.RandomExample(sspa_size, distr, parameters=[alpha])
+                        new_setting.distr = "mix"
+                        new_setting.trans_tensor = keep_ratio*setting.trans_tensor + (1-keep_ratio)*stable_setting.trans_tensor
+                        new_setting.reward_tensor = keep_ratio*setting.reward_tensor + (1-keep_ratio)*stable_setting.reward_tensor
+                        new_setting.suggest_act_frac = keep_ratio*setting.suggest_act_frac + (1-keep_ratio)*stable_setting.suggest_act_frac
+                        new_setting.suggest_act_frac = int(100*new_setting.suggest_act_frac) / 100
+                        result = compute_P_and_Phi_eigvals(new_setting)
+                        if result is None:
+                            print("{}({})+{}({}) has ambiguous stability".format(keep_ratio, i, 1-keep_ratio, stable_setting_index))
+                        else:
+                            analyzer = result[0]
+                            new_setting.avg_reward_upper_bound = analyzer.opt_value
+                            new_setting.y = analyzer.y.copy
+                            new_setting.lp_priority = analyzer.solve_LP_Priority(verbose=False)
+                            new_setting.whittle_priority = analyzer.solve_whittles_policy()
+                            new_setting.unichain_eigval = result[1]
+                            new_setting.local_stab_eigval = result[2]
+                            print("{}({})+{}({}): upper bound={}, unichain_eigval={}, rho(Phi)={}".format(keep_ratio, i, 1-keep_ratio, stable_setting_index,
+                                                            new_setting.avg_reward_upper_bound, new_setting.unichain_eigval, new_setting.local_stab_eigval))
+                            setting_save_path = "setting_data/mix-random-size-{}-{}-({})-({})-ratio-{}".format(sspa_size, distr_and_parameter, i, stable_setting_index, keep_ratio)
+                            if (new_setting.local_stab_eigval < 1) and (new_setting.local_stab_eigval > 0.9):
+                                save_bandit(new_setting, setting_save_path, None)
+
+        print("{} examples are locally unstable".format(len(subopt_ratios)))
+
+    ## visualize the CDF of suboptimality among locally unstable examples
+    if plot_subopt_cdf:
+        name_data_dict = {"lpp":subopt_ratios, "whittle":subopt_ratios_w,
+                          "max":[max(subopt_ratios[i], subopt_ratios_w[i]) for i in range(len(subopt_ratios))]}
+        for name, data in name_data_dict.items():
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            fig.subplots_adjust(top=0.8)
+            data.append(0)
+            data = np.sort(data)
+            print(bisect(data, 0.9) / len(data), bisect(data, 0.95) / len(data))
+            ax.plot(data, np.linspace(0, 1, len(subopt_ratios)), color="b")
+            ax.grid()
+            # ax.hist(subopt_ratios, bins=20, weights=np.ones(len(subopt_ratios)) / len(subopt_ratios))
+            if name == "lpp":
+                full_name = "LP index"
+            elif name == "whittle":
+                full_name = "Whittle index"
+            elif name == "max":
+                full_name = "max of two indices"
+            # title=ax.set_title("Size-{}-{} \n Subopt of {}'s avg reward when N={} among {} non-UGAP examples\n ".format(sspa_size, distr_and_parameter, full_name, N, len(subopt_ratios)))
+            # title.set_y(1.05)
+            plt.ylabel("CDF", fontsize=22)
+            plt.xlabel("Optimality ratio", fontsize=22)
+            plt.xticks(fontsize=22, ticks=np.arange(0, 1.2, step=0.2))
+            plt.yticks(fontsize=22)
+            fig.tight_layout()
+            # plt.savefig("formal_figs/nonugap-subopt-{}.pdf".format(name))
+            plt.savefig("figs2/nonugap-subopt-{}-size-{}-{}.pdf".format(name, sspa_size, distr_and_parameter))
+            plt.show()
 
     ## simulating FTVA for all examples
     if do_ftva_simulation:
@@ -515,7 +527,7 @@ def search_and_store_unstable_examples():
                 time.time()-tic)
             )
 
-    # simulating mean-field dynamics of locally stable examples to find non-UGAP
+    ## simulating mean-field dynamics of locally stable examples to find non-UGAP
     if do_local_stable_simulation:
         print("Mean-field simulation of locally stable example starts. " +
               "{} initial points for each example".format(num_inits_for_test_UGAP))
@@ -551,24 +563,24 @@ def search_and_store_unstable_examples():
                     if mf_reward / setting.avg_reward_upper_bound < 0.99:
                         print("setting id={}, policy={}, local stability eig={:0.4f}, unichain eig={:0.4f}, upper bound={:0.4f}, mf_reward={:0.4f}, opt ratio={:0.4f}".format(
                             i, policy_name, setting.local_stab_eigval, setting.unichain_eigval, setting.avg_reward_upper_bound, mf_reward, mf_reward / setting.avg_reward_upper_bound))
-    # count the number of locally-stable non-UGAP instances
-    for policy_name in policy_names:
-        num_non_UGAP_local_stable = 0
-        num_mean_field_simulated = 0
-        for i, setting in enumerate(all_data["examples"]):
-            if i >= simulate_local_stable_up_to_ith:
-                break
-            if (setting is None) or (setting.local_stab_eigval > 1):
-                # only show the locally STABLE examples
-                continue
-            worst_opt_ratio = np.min(np.array(simu_local_stable_data[policy_name][i]) / setting.avg_reward_upper_bound) if len(simu_local_stable_data[policy_name][i])>0 else 1
-            if worst_opt_ratio < UGAP_subopt_threshold:
-                print("Example {} is locally stable but {}-non-UGAP, with worst_opt_ratio={}".format(i, policy_name, worst_opt_ratio))
-                num_non_UGAP_local_stable += 1
-            if len(simu_local_stable_data[policy_name][i]) > 0:
-                num_mean_field_simulated += 1
-        print("For policy {}, there are {} locally stable non-UGAP instances among {} random instances that has been simulated".format(
-            policy_name, num_non_UGAP_local_stable, num_mean_field_simulated))
+        ## count the number of locally-stable non-UGAP instances
+        for policy_name in policy_names:
+            num_non_UGAP_local_stable = 0
+            num_mean_field_simulated = 0
+            for i, setting in enumerate(all_data["examples"]):
+                if i >= simulate_local_stable_up_to_ith:
+                    break
+                if (setting is None) or (setting.local_stab_eigval > 1):
+                    # only show the locally STABLE examples
+                    continue
+                worst_opt_ratio = np.min(np.array(simu_local_stable_data[policy_name][i]) / setting.avg_reward_upper_bound) if len(simu_local_stable_data[policy_name][i])>0 else 1
+                if worst_opt_ratio < UGAP_subopt_threshold:
+                    print("Example {} is locally stable but {}-non-UGAP, with worst_opt_ratio={}".format(i, policy_name, worst_opt_ratio))
+                    num_non_UGAP_local_stable += 1
+                if len(simu_local_stable_data[policy_name][i]) > 0:
+                    num_mean_field_simulated += 1
+            print("For policy {}, there are {} locally stable non-UGAP instances among {} random instances that has been simulated".format(
+                policy_name, num_non_UGAP_local_stable, num_mean_field_simulated))
 
     ## plot CDF of log hitting time in the SA assumption
     if plot_sa_hitting_time:

@@ -1,3 +1,19 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""Generates a population of randomly Restless Bandit (RB) instances
+and calculates statistics.
+
+This script is part of the experimental analysis for the paper "Unichain and
+Aperiodicity are Sufficient for Asymptotic Optimality of Restless Bandits"
+(hereafter referred to as "RB-unichain").
+"""
+
+__author__ = "Yige Hong"
+__date__ = "2025-09-06"
+__version__ = "1.0"
+
+
 import numpy as np
 
 import rb_settings
@@ -23,11 +39,11 @@ def compute_P_and_Phi_eigvals(setting):
     assert np.allclose(Ppibs_eigs[-1], 1)
     Ppibs_second_eig = Ppibs_eigs[-2]
 
-
     Phi = analyzer.compute_Phi(verbose=False)
     Phi_spec_rad = np.max(np.abs(np.linalg.eigvals(Phi)))
 
     return analyzer, Ppibs_second_eig, Phi_spec_rad
+
 
 def compute_mf_reward(setting, init_state_fracs, priority, T):
     mfrb = MeanFieldRB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, init_state_fracs)
@@ -43,67 +59,137 @@ def compute_mf_reward(setting, init_state_fracs, priority, T):
 
     return mfrb_avg_reward
 
-def analyze_new_reward_modif(setting, direction):
-    pass
 
 
 
 def search_and_store_unstable_examples():
-    ### output settings
+    """Generates and analyzes populations of random Restless Bandit (RB) instances.
+
+    This script produces the data and plots for Figures 7, 8, 13, and 14
+    (the scatter plots and CDFs) in the RB-unichain paper. Simulation data
+    is saved in the `random_example_data/` folder, and the script can be
+    resumed if interrupted. The generated figures are saved in `figs2` folder.
+    """
+
+    ## Main Configuration
+    # --------------------------------------------------------------------------
+    # If True, save all instances and simulation results
+    update_database = True
+    # The total number of random RB instances to generate and store.
     num_examples = 10000
-    num_reward_modif_examples = 0
-    make_scatter_plot = False
-    plot_subopt_cdf = False
-    save_subopt_examples = False
-    save_mix_examples = False
-    save_first_i_examples_unselected = -1
+
+    ## Scatter Plot Settings (Figures 7 & 13)
+    # --------------------------------------------------------------------------
+    # If True, generates a scatter plot of the second-largest eigenvalue of
+    # P_pi vs. the spectral radius of Phi for all generated instances.
+    make_scatter_plot = True
+    # Filters the scatter plot to only display instances where the second-largest
+    # eigenvalue of P_pi is below this threshold.
     unichain_threshold = 0.95
+
+    ## LP & Whittle Index Simulation Settings
+    # --------------------------------------------------------------------------
+    # If True, runs simulations for the LP and Whittle index policies.
+    do_simulation = True
+    # The number of arms to use in the simulations.
+    N = 500
+    # The number of simulation steps, in thousands (e.g., 20 means 20,000 steps).
+    simu_thousand_steps = 20
+    # The list of policies to simulate, which should be a subset of ["lppriority", "whittle"]
+    policy_names = ["lppriority", "whittle"]
+    # Simulates only the first `simulate_up_to_ith` non-UGAP examples.
+    simulate_up_to_ith = 10000
+
+    ## CDF Plot Settings (Figures 8 & 14)
+    # --------------------------------------------------------------------------
+    # NOTE: These options require the LP and Whittle index simulations to be complete.
+    # If True, plots the Cumulative Distribution Function (CDF) of the optimality
+    # ratio for all locally unstable instances.
+    plot_subopt_cdf = True
+    # If True, saves locally unstable instances with an optimality ratio <= 0.9
+    # to the `setting_data/local_unstable_subopt/` directory.
+    save_subopt_examples = True
+    # Saves the first `i` instances regardless of their properties. Set to -1 to disable.
+    save_first_i_examples_unselected = -1
+    # Ad-hoc flag, should be set to False for standard runs.
+    save_mix_examples = False
+
+    ## FTVA Policy Simulation Settings (Not in Paper)
+    # --------------------------------------------------------------------------
+    # If True, runs simulations for the FTVA policy on the random instances.
+    do_ftva_simulation = False
+    # Simulates FTVA for the first `simulate_ftva_up_to_ith` non-UGAP examples.
+    simulate_ftva_up_to_ith = 500
+
+    ## Synchronization Time Analysis (Not in Paper)
+    # --------------------------------------------------------------------------
+    # NOTE: Requires the FTVA simulations to be complete.
+    # If True, plots the CDF of synchronization times across all simulated instances.
     plot_sa_hitting_time = False
+    # If True, creates a scatter plot of synchronization time vs. optimality ratio.
     plot_sa_hitting_time_vs_opt = False
+    # Ad-hoc flags, should be set to False for standard runs.
     find_almost_unstable_examples = False
     save_almost_unstable_examples = False
-    update_database = False
-    ## simulation settings
-    N = 500
-    simu_thousand_steps = 20 # simulate 1000*simu_thousand_steps many time steps
-    policy_names = ["lppriority", "whittle"]
-    ## simulation button for priority policies
-    do_simulation = False
-    simulate_up_to_ith = 10000 # only simulate the first simulate_up_to_ith examples that are non-UGAP
-    ## simulation button for FTVA
-    do_ftva_simulation = False
-    simulate_ftva_up_to_ith = 500
-    ## simulate mean-field dynamics for locally stable examples
+
+    ## Mean-Field Dynamics Simulation (Not in Paper)
+    # --------------------------------------------------------------------------
+    # If True, simulates mean-field dynamics for locally stable examples.
     do_local_stable_simulation = False
+    # The number of locally stable examples to simulate.
     simulate_local_stable_up_to_ith = 10000
+    # The number of initializations to use when testing for UGAP.
     num_inits_for_test_UGAP = 10
+    # The simulation horizon for mean-field dynamics.
     T_mf_simulation = 5000
+    # The optimality ratio threshold for defining UGAP suboptimality.
     UGAP_subopt_threshold = 0.99
-    ## hyperparameters
+
+    ## Instance Generation Hyperparameters
+    # --------------------------------------------------------------------------
+    # The size of state space
     sspa_size = 10
-    distr = "dirichlet" #"uniform", "dirichlet", "CL", "dirichlet-uniform-nzR0"
+    # The probability distribution used to generate the random RB instances.
+    # Options: "uniform", "dirichlet", "CL", "dirichlet-uniform-nzR0"
+    distr = "dirichlet"
+    # The laziness parameter. If not None, modify the transition probability
+    # such that the state stays unchanged with the probability `laziness`.
     laziness = None
-    alpha = 0.2
-    beta = 4 # > 3
+    # The sparcity parameter for the Dirichlet distribution.
+    alpha = 0.05
+    # The parameter for the "CL" distribution; must be > 3.
+    beta = 4
+
+    # --------------------------------------------------------------------------
+    # Construct a descriptive string that includes the distribution and its
+    # key parameters. This is useful for naming files and organizing results.
+    # --------------------------------------------------------------------------
     distr_and_parameter = distr
     if distr == "uniform":
         pass
     elif distr in ["dirichlet", "dirichlet-uniform-nzR0"]:
-        distr_and_parameter += "-" + str(alpha)
+        distr_and_parameter += f"-{alpha}"
     elif distr == "CL":
-        distr_and_parameter += "-" + str(beta)
+        distr_and_parameter += f"-{beta}"
     else:
         raise NotImplementedError
     if laziness is not None:
-        distr_and_parameter += "-lazy-" + str(laziness)
-    # check if exists: if so, load data; if not, create new
-    if not os.path.exists("random_example_data"):
-        os.mkdir("random_example_data")
-    ## load data of random examples
+        distr_and_parameter += f"-lazy-{laziness}"
+
+
+    ## Data Loading and Initialization
+    # --------------------------------------------------------------------------
+    # Attempt to load a database of previously generated RB instances. If a file
+    # matching the current hyperparameters exists, load it. Otherwise, initialize
+    # a new data structure to store the results.
+    # --------------------------------------------------------------------------
+    os.makedirs("random_example_data", exist_ok=True)
     file_path = "random_example_data/random-{}-{}".format(sspa_size, distr_and_parameter)
     if os.path.exists(file_path):
+        # Load the existing data file.
         with open(file_path, "rb") as f:
             all_data = pickle.load(f)
+        # Verify that the loaded data's hyperparameters match the current settings.
         assert all_data["sspa_size"] == sspa_size
         assert all_data["distr"] == distr
         if distr in ["dirichlet", "dirichlet-uniform-nzR0"]:
@@ -113,6 +199,7 @@ def search_and_store_unstable_examples():
         assert all_data["laziness"] == laziness
         assert "examples" in all_data
     else:
+        # If no data file exists, create a new dictionary to hold the data.
         all_data = {}
         all_data["sspa_size"] = sspa_size
         all_data["distr"] = distr
@@ -121,7 +208,14 @@ def search_and_store_unstable_examples():
         all_data["laziness"] = laziness
         all_data["examples"] = []
         all_data["is_sa"] = []
-    ## load data of simulations
+
+    ## Simulation Data Initialization
+    # --------------------------------------------------------------------------
+    # The following blocks load saved simulation data if it exists. If not, they
+    # initialize the data structures needed to store new simulation results.
+    # --------------------------------------------------------------------------
+
+    # --- Load LP Index and Whittle Index Simulation Data ---
     simu_file_path = "random_example_data/simu-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
     if os.path.exists(simu_file_path):
         with open(simu_file_path, "rb") as f:
@@ -129,12 +223,15 @@ def search_and_store_unstable_examples():
     else:
         simu_data = {}
         simu_data["N"] = N
-        # simu_data[policy][i] stores the average value of the simulation from i*1000 to ((i+1)*1000-1) time steps
-        # simu_data[(policy+"-final-state")] stores the final state of the last simulation, i.e., the state at 1000*len(simu_data["LP-index"][i]) time step
+        # simu_data[policy_name][i] is the reward trace for instance `i` under policy `policy_name`;
+        # it is a list containing average reward every thousant time step
+        # simu_data[(policy+"-final-state")] stores the final state of the last simulation,
+        # i.e., the state at 1000*len(simu_data["LP-index"][i]) time step
         for policy_name in policy_names:
             simu_data[policy_name] = [[] for i in range(num_examples)]
             simu_data[(policy_name+"-final-state")] =  [None for i in range(num_examples)]
-    ## load data of ftva simulation
+
+    # --- Load FTVA Policy Simulation Data ---
     simu_ftva_file_path = "random_example_data/simu-ftva-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
     if os.path.exists(simu_ftva_file_path):
         with open(simu_ftva_file_path, "rb") as f:
@@ -144,7 +241,8 @@ def search_and_store_unstable_examples():
         simu_ftva_data["N"] = N
         simu_ftva_data["FTVA"] = [[] for i in range(num_examples)]
         simu_ftva_data["FTVA-final-state"] = [None for i in range(num_examples)]
-    ## load data of mean-field simulation of locally stable examples
+
+    # --- Load Mean-Field Simulation Data for Locally Stable Examples ---
     simu_local_stable_path = "random_example_data/simu-local-stable-N{}-random-{}-{}".format(N, sspa_size, distr_and_parameter)
     if os.path.exists(simu_local_stable_path):
         with open(simu_local_stable_path, "rb") as f:
@@ -155,13 +253,22 @@ def search_and_store_unstable_examples():
         for policy_name in policy_names:
             simu_local_stable_data[policy_name] = [[] for i in range(num_examples)]
 
-    ## generate and save new examples given the hyperparameters above
+
+    ## Generate and Analyze New RB Instances
+    # --------------------------------------------------------------------------
+    # If the number of existing instances is less than `num_examples`, generate
+    # new ones until the target number is reached. For each new instance, key
+    # properties like second-largest eigenvalue,  LP upper bound, LP solution
+    # are pre-calculated and stored.
+    # --------------------------------------------------------------------------
     num_exist_examples = len(all_data["examples"])
     if num_exist_examples < num_examples:
+        # Pre-calculate the B matrix for the Chung-Lu model if needed.
         if distr == "CL":
             B = ChungLuBeta2B(beta)
-        # generate more examples if not enough
+        # Loop to create and analyze new instances.
         for i in range(num_examples):
+             # Generate a new RB instance based on the chosen distribution.
             if distr in ["uniform", "dirichlet", "dirichlet-uniform-nzR0"]:
                 setting = RandomExample(sspa_size, distr, laziness=laziness, parameters=[alpha])
             elif distr == "CL":
@@ -169,11 +276,14 @@ def search_and_store_unstable_examples():
                 print_bandit(setting)
             else:
                 raise NotImplementedError
+            # Analyze the instances. Skip instances that have already been generated in previous runs.
             if i > num_exist_examples:
                 result = compute_P_and_Phi_eigvals(setting)
+                # If multiple neutral states, `compute_P_and_Phi_eigvals` returns None, skip this instance
                 if result is None:
                     all_data["examples"].append(None)
                     continue
+                # calculate key properties of the instances
                 analyzer = result[0]
                 setting.avg_reward_upper_bound = analyzer.opt_value
                 setting.y = analyzer.y.value.copy()
@@ -185,7 +295,8 @@ def search_and_store_unstable_examples():
                       f"Whittle priority={setting.whittle_priority}, P_pi_radius={setting.unichain_eigval}, Phi_radius={setting.local_stab_eigval}")
                 all_data["examples"].append(setting)
 
-    ## calculate the average sparsity
+
+    ## ---calculate the average sparsity---
     P_nnz_entries_total = 0
     num_rows_total = 0
     for i in range(len(all_data["examples"])):
@@ -195,7 +306,8 @@ def search_and_store_unstable_examples():
             num_rows_total += setting.sspa_size**2 * 2
     print(f"Average percent of non-zero entries = {P_nnz_entries_total / num_rows_total}")
 
-    ## For the locally unstable examples, run the mean-field limit reward, and generate reward modification
+
+    ## ---For the locally unstable examples, run the mean-field limit reward---
     for i, setting in enumerate(all_data["examples"]):
         if setting is None:
             continue
@@ -212,17 +324,9 @@ def search_and_store_unstable_examples():
                     setting.avg_reward_whittle_mf_limit = 0
                 else:
                     setting.avg_reward_whittle_mf_limit = compute_mf_reward(setting, init_state_frac, setting.whittle_priority, T_mf_simulation)
-            if len(setting.reward_modifs) < num_reward_modif_examples:
-                print("analyzing the reward modification of an unstable example, index={}".format(i))
-                # subroutine of generating adversarial reward function (need to understand LP stability) and compute mean-field limit
-                for j in range(num_reward_modif_examples):
-                    direction = np.random.normal(0, 1, (sspa_size,))
-                    direction = direction / np.linalg.norm(direction)
-                    if j > len(setting.reward_modifs):
-                        new_reward_modif = analyze_new_reward_modif(setting, direction)
-                        setting.reward_modifs.append(new_reward_modif)
 
-    ## calculate hitting time to determine if the example satisfies sa
+
+    ## ---calculate hitting time to determine if the example satisfies SA---
     max_recent_hitting_time = 0
     for i, setting in enumerate(all_data["examples"]):
         if i%100 == 0:
@@ -256,7 +360,8 @@ def search_and_store_unstable_examples():
         if all_data["examples"][i].sa_max_hitting_time > 1e4:
             print("The {}-th example is non-SA, max hitting time = {}".format(i, all_data["examples"][i].sa_max_hitting_time))
 
-    ## make scatter plot of unichain and local stability
+
+    ## ---make scatter plot of unichain and local stability---
     if make_scatter_plot:
         eig_vals_list = []
         unstable_unichain_count = 0
@@ -293,7 +398,8 @@ def search_and_store_unstable_examples():
         # plt.savefig("formal_figs/eigen-{}.pdf".format(distr_and_parameter))
         plt.show()
 
-    ## save all examples up to specified i
+
+    ## ---save all examples up to specified i---
     if save_first_i_examples_unselected > 0:
         for i, setting in enumerate(all_data["examples"]):
             if setting is None:
@@ -303,8 +409,7 @@ def search_and_store_unstable_examples():
             #     continue
             if i >= save_first_i_examples_unselected:
                 break
-            if not os.path.exists("setting_data/unselected"):
-                os.mkdir("setting_data/unselected")
+            os.makedirs("setting_data/unselected", exist_ok=True)
             setting_save_path =  "setting_data/unselected/random-size-{}-{}-({})".format(sspa_size, distr_and_parameter, i)
             print("saving the example {} to {}".format(i, setting_save_path))
             if os.path.exists(setting_save_path):
@@ -312,7 +417,8 @@ def search_and_store_unstable_examples():
             else:
                 save_bandit(setting, setting_save_path, {"alpha":alpha})
 
-    ## simulating unstable examples
+
+    ## ---simulating unstable examples---
     if do_simulation:
         print("Simulation starts")
         for policy_name in policy_names:
@@ -378,8 +484,8 @@ def search_and_store_unstable_examples():
                     np.std(np.array(simu_data[policy_name][i])) / np.sqrt(simu_thousand_steps))
                 )
 
+    ## ---calculating subopt ratios for unstable examples---
     if plot_subopt_cdf or save_mix_examples or save_subopt_examples:
-        ## calculating subopt ratios for unstable examples
         subopt_ratios = []
         subopt_ratios_w = []
         for i, setting in enumerate(all_data["examples"]):
@@ -402,6 +508,7 @@ def search_and_store_unstable_examples():
                 subopt_ratios_w.append(subopt_ratio_w)
                 if (subopt_ratio < 0.9) and (subopt_ratio_w < 0.9):
                     # print("In the {}-th example, lp index is {}-optimal, Whittle index is {}-suboptimal, rho(Phi)={}".format(i, subopt_ratio, subopt_ratio_w, setting.local_stab_eigval))
+                    os.makedirs("setting_data/local_unstable_subopt", exist_ok=True)
                     setting_save_path =  "setting_data/local_unstable_subopt/random-size-{}-{}-({})".format(sspa_size, distr_and_parameter, i)
                     ## save suboptimal examples
                     if save_subopt_examples:
@@ -438,10 +545,10 @@ def search_and_store_unstable_examples():
                             setting_save_path = "setting_data/mix-random-size-{}-{}-({})-({})-ratio-{}".format(sspa_size, distr_and_parameter, i, stable_setting_index, keep_ratio)
                             if (new_setting.local_stab_eigval < 1) and (new_setting.local_stab_eigval > 0.9):
                                 save_bandit(new_setting, setting_save_path, None)
-
         print("{} examples are locally unstable".format(len(subopt_ratios)))
 
-    ## visualize the CDF of suboptimality among locally unstable examples
+
+    ## ---visualize the CDF of suboptimality among locally unstable examples---
     if plot_subopt_cdf:
         name_data_dict = {"lpp":subopt_ratios, "whittle":subopt_ratios_w,
                           "max":[max(subopt_ratios[i], subopt_ratios_w[i]) for i in range(len(subopt_ratios))]}
@@ -472,7 +579,8 @@ def search_and_store_unstable_examples():
             plt.savefig("figs2/nonugap-subopt-{}-size-{}-{}.pdf".format(name, sspa_size, distr_and_parameter))
             plt.show()
 
-    ## simulating FTVA for all examples
+
+    ## ---simulating FTVA for all examples---
     if do_ftva_simulation:
         print("Simulation of FTVA starts")
         for i, setting in enumerate(all_data["examples"]):
@@ -527,7 +635,8 @@ def search_and_store_unstable_examples():
                 time.time()-tic)
             )
 
-    ## simulating mean-field dynamics of locally stable examples to find non-UGAP
+
+    ## ---simulating mean-field dynamics of locally stable examples to find non-UGAP---
     if do_local_stable_simulation:
         print("Mean-field simulation of locally stable example starts. " +
               "{} initial points for each example".format(num_inits_for_test_UGAP))
@@ -582,7 +691,8 @@ def search_and_store_unstable_examples():
             print("For policy {}, there are {} locally stable non-UGAP instances among {} random instances that has been simulated".format(
                 policy_name, num_non_UGAP_local_stable, num_mean_field_simulated))
 
-    ## plot CDF of log hitting time in the SA assumption
+
+    ## ---plot CDF of log hitting time in the SA assumption---
     if plot_sa_hitting_time:
         all_hitting_times = []
         for i, setting in enumerate(all_data["examples"]):
@@ -601,7 +711,8 @@ def search_and_store_unstable_examples():
         plt.savefig("figs2/sa-hit-time-log10-size-{}-{}.png".format(sspa_size, distr_and_parameter))
         plt.show()
 
-    ## plot hitting time versus optimality ratio
+
+    ## ---plot hitting time versus optimality ratio---
     if plot_sa_hitting_time_vs_opt:
         plot_hitting_times = []
         plot_opt_gap_ratio = []
@@ -617,6 +728,7 @@ def search_and_store_unstable_examples():
         plt.savefig("figs2/sa-hit-time-ftva-reward-size-{}-scatter-{}.png".format(sspa_size, distr_and_parameter))
         plt.show()
 
+    # "almost unstable instances", not included in the paper
     if find_almost_unstable_examples:
         Phi_radiuses = -np.ones((num_examples,))
         nondegeneracies = -np.ones((num_examples,))
@@ -657,14 +769,9 @@ def search_and_store_unstable_examples():
             if len(target_radiuses) == 0:
                 break
 
-        # temp_num_points = 1000
-        # plt.plot(1-Phi_radiuses[sorted_indices[0:temp_num_points]], np.linspace(0,1,temp_num_points), label="spec gap")
-        # plt.plot(np.sort(nondegeneracies[sorted_indices[0:temp_num_points]]), np.linspace(0,1,temp_num_points), label="non-degeneracy")
-        # plt.legend()
-        # plt.show()
 
+    ## ----- save data -----
     if update_database:
-        ## save data
         print("saving data... do not quit...")
         with open(file_path, "wb") as f:
             pickle.dump(all_data, f)

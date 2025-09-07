@@ -1,3 +1,19 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""Performs a detailed analysis of the ID and set-expansion policies.
+
+This script is part of the experimental analysis for the paper "Unichain and
+Aperiodicity are Sufficient for Asymptotic Optimality of Restless Bandits"
+(hereafter referred to as "RB-unichain").
+"""
+
+__author__ = "Yige Hong"
+__date__ = "2025-09-06"
+__version__ = "1.0"
+
+import os
+
 import numpy as np
 import cvxpy as cp
 import scipy
@@ -48,11 +64,10 @@ def convert_name_to_setting(setting_name, setting_path):
     return setting
 
 
-def visualize_ideal_action_persistency(setting_name):
+def visualize_ideal_action_persistency(setting_name, save_dir):
     setting_path = "setting_data/" + setting_name
     setting = convert_name_to_setting(setting_name, setting_path)
 
-    # setting = rb_settings.ExampleFromFile("setting_data/random-size-3-uniform-(0)")
     N = 500
     act_frac = setting.suggest_act_frac
     rb_settings.print_bandit(setting)
@@ -64,7 +79,6 @@ def visualize_ideal_action_persistency(setting_name):
 
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
     y = analyzer.solve_lp()[1]
-    LP_index_priority = analyzer.solve_LP_Priority()
     W = analyzer.compute_W(abstol=1e-10)[0]
     print("{}, 2*lambda_W = {}".format(setting_name, 2*np.linalg.norm(W, ord=2)))
 
@@ -102,8 +116,6 @@ def visualize_ideal_action_persistency(setting_name):
         focus_set, non_shrink_flag = setexp_policy.get_new_focus_set(cur_states=cur_states,
                                                                      last_focus_set=focus_set)
         actions, _, ideal_actions = setexp_policy.get_actions(cur_states, focus_set, output_ideal_actions=True)
-        # actions, _, ideal_actions = setexp_policy.get_actions(cur_states, focus_set, tb_rule="priority",
-        #                                                       tb_priority=LP_index_priority, output_ideal_actions=True)
         rb.step(actions)
         if t > burn_in:
             setexp_ideal_act_agreement_maps.append(actions==ideal_actions)
@@ -121,14 +133,17 @@ def visualize_ideal_action_persistency(setting_name):
     plt.xticks(fontsize=14)
     plt.ylabel("Fraction of arms", fontsize=14)
     plt.yticks(fontsize=14)
-    # plt.ylim([0,1])
     plt.legend(fontsize=14)#, loc="center right")
     plt.tight_layout()
-    plt.savefig("figs2/persistency-{}-N{}-ahead-{}.pdf".format(setting_name, N, T_ahead))
-    plt.savefig("formal_figs/persistency-{}-N{}-ahead-{}.pdf".format(setting_name, N, T_ahead))
+    plt.savefig(f"{save_dir}/persistency-{setting_name}-N{N}-ahead-{T_ahead}.pdf")
     plt.show()
 
 
 if __name__ == "__main__":
-    for setting_name in ["non-sa"]: #["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]:
-        visualize_ideal_action_persistency(setting_name)
+    # Run the following code to reproduce the figures in Appendix H.5
+    # The output figures will be saved in the folder `figs2`
+    os.makedirs("figs2", exist_ok=True)
+    for setting_name in ["three-states", "new2-eight-states"] \
+                        + ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] \
+                        + ["non-sa", "non-sa-big2"]:
+        visualize_ideal_action_persistency(setting_name, "figs2")

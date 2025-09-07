@@ -1,3 +1,15 @@
+"""Defines the classes for various Restless Bandit (RB) instances.
+
+These instances are used throughout the experiments for the paper "Unichain
+and Aperiodicity are Sufficient for Asymptotic Optimality of Restless
+Bandits" (hereafter referred to as "RB-unichain").
+"""
+
+__author__ = "Yige Hong"
+__date__ = "2025-09-06"
+__version__ = "1.0"
+
+
 import numpy as np
 import pickle
 from discrete_RB import SingleArmAnalyzer

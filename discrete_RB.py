@@ -1,9 +1,19 @@
+"""Core components for the discrete Restless Bandit (RB) simulation environment.
+
+This file defines the primary classes and functions used to run the RB
+simulations, including:
+
+- The `RB` class, which serves as the main simulation environment.
+- A helper class for solving single-arm LPs, LP index, and Whittle index.
+- Implementations of various RB policies (e.g., LP-Priority policies, ID, Set-Expansion).
+- Other utility functions.
 """
-This file defines the class for discrete_RB simulation environment,
-the helper class for solving single-armed LPs and getting priorities,
-classes for RB policies,
-along with a few helper functions
-"""
+
+__author__ = "Yige Hong"
+__date__ = "2025-09-06"
+__version__ = "1.0"
+
+
 import logging
 
 import numpy as np
@@ -465,8 +475,6 @@ class SingleArmAnalyzer(object):
                 break
         print("U computed after expanding {} terms, error={}".format(iters, spn_error))
         return U, spn_error
-
-
 
 
 class PriorityPolicy(object):

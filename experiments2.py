@@ -214,7 +214,7 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
             assert setting_and_data["num_reps"] == num_reps
             assert setting_and_data["T"] == T
             assert setting_and_data["act_frac"] == act_frac
-            assert setting_and_data["Ns"] == Ns
+            assert np.allclose(setting_and_data["Ns"], Ns, atol=1e-7)
             assert setting_and_data["name"] == setting_name
             assert setting_and_data["policy_name"] == policy_name
             assert setting_and_data["setting_code"] == setting_name
@@ -652,10 +652,10 @@ if __name__ == "__main__":
     for setting_name in ["three-states", "new2-eight-states", "non-sa", "non-sa-big2"]:
         for policy_name in ["id", "setexp", "setexp-priority", "ftva", "lppriority", "whittle"]:
             if (setting_name in ["non-sa", "non-sa-big2"]) and (policy_name == "ftva"):
-                T = 16e4
+                T = 16*10**4
                 Tstr = "16e4"
             else:
-                T = 2e4
+                T = 2*10**4
                 Tstr = "2e4"
             for rep_id in range(1, 6):
                 task_list.append(my_pool.apply_async(run_policies,
@@ -676,14 +676,14 @@ if __name__ == "__main__":
     # --------------------------------------------------------------------------
     for i in [355, 582]:
         setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
-        setting_path = "setting_data/local_unstable_subopt/" + setting_name
+        setting_path = os.path.join("setting_data", "local_unstable_subopt", setting_name)
         for policy_name in ["id", "setexp", "setexp-priority", "ftva", "lppriority", "whittle"]:
             for rep_id in range(1, 6):
                 task_list.append(my_pool.apply_async(run_policies,
                                         kwds={"setting_name": setting_name,
                                               "policy_name": policy_name,
                                               "init_method": "random",
-                                              "T": 2e4,
+                                              "T": 2*10**4,
                                               "setting_path": setting_path,
                                               "Ns": np.arange(100, 1100, 100),
                                               "save_dir": "fig_data",

@@ -45,7 +45,7 @@ def convert_name_to_setting(setting_name, setting_path):
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
         setting.reward_tensor[0,1] = 0.02
     elif setting_name == "new2-eight-states":
-        probs_L, probs_R, action_script, suggest_act_frac = rb_settings.ConveyorExample.get_parameters(
+        probs_L, probs_R, action_script, suggest_act_frac, _ = rb_settings.ConveyorExample.get_parameters(
             "eg4action-gap-tb", 8)
         setting = rb_settings.ConveyorExample(8, probs_L, probs_R, action_script, suggest_act_frac)
         setting.reward_tensor[0,1] = 0.1/30
@@ -104,7 +104,7 @@ def visualize_ideal_action_persistency(setting_name, save_dir):
 
     ID_persistency_nums = []
     for t in range(T):
-        cur_persistency_map = np.product(ID_ideal_act_agreement_maps[t:(t+T_ahead),:], axis=0) #test this part
+        cur_persistency_map = np.product(ID_ideal_act_agreement_maps[t:(t+T_ahead),:], axis=0)
         ID_persistency_nums.append(np.sum(cur_persistency_map))
 
     rb = RB(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, N, init_states)
@@ -123,12 +123,12 @@ def visualize_ideal_action_persistency(setting_name, save_dir):
 
     setexp_persistency_nums = []
     for t in range(T):
-        cur_persistency_map = np.product(setexp_ideal_act_agreement_maps[t:(t+T_ahead),:], axis=0) #test this part
+        cur_persistency_map = np.product(setexp_ideal_act_agreement_maps[t:(t+T_ahead),:], axis=0)
         setexp_persistency_nums.append(np.sum(cur_persistency_map))
 
     fig = plt.figure()
-    plt.plot(np.arange(burn_in, burn_in+T), np.array(ID_persistency_nums) / N, label="ID policy")
-    plt.plot(np.arange(burn_in, burn_in+T), np.array(setexp_persistency_nums) / N, label="Set-expansion policy")
+    plt.plot(np.arange(burn_in, burn_in+T), np.array(ID_persistency_nums) / N, label="ID policy", color="b", linestyle="-", linewidth=1.5)
+    plt.plot(np.arange(burn_in, burn_in+T), np.array(setexp_persistency_nums) / N, label="Set-expansion policy", color="r", linestyle="-.", linewidth=1.5)
     plt.xlabel("Time step", fontsize=14)
     plt.xticks(fontsize=14)
     plt.ylabel("Fraction of arms", fontsize=14)
@@ -136,14 +136,16 @@ def visualize_ideal_action_persistency(setting_name, save_dir):
     plt.legend(fontsize=14)#, loc="center right")
     plt.tight_layout()
     plt.savefig(f"{save_dir}/persistency-{setting_name}-N{N}-ahead-{T_ahead}.pdf")
-    plt.show()
+    # plt.show()
 
 
 if __name__ == "__main__":
+    np.random.seed(42)
+
     # Run the following code to reproduce the figures in Appendix H.5
     # The output figures will be saved in the folder `figs2`
     os.makedirs("figs2", exist_ok=True)
-    for setting_name in ["three-states", "new2-eight-states"] \
+    for setting_name in  ["three-states", "new2-eight-states"] \
                         + ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] \
-                        + ["non-sa", "non-sa-big2"]:
+                        + ["non-sa-big2"]:
         visualize_ideal_action_persistency(setting_name, "figs2")

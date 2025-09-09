@@ -62,13 +62,13 @@ def compute_mf_reward(setting, init_state_fracs, priority, T):
 
 
 
-def search_and_store_unstable_examples():
+def search_and_store_unstable_examples(input_alpha=None, input_plot_cdf=None, input_distr=None):
     """Generates and analyzes populations of random Restless Bandit (RB) instances.
 
     This script produces the data and plots for Figures 7, 8, 13, and 14
     (the scatter plots and CDFs) in the RB-unichain paper. Simulation data
-    is saved in the `random_example_data/` folder, and the script can be
-    resumed if interrupted. The generated figures are saved in `figs2` folder.
+    is saved in the `random_example_data/` folder at the end of the run.
+    The generated figures are saved in `figs2` folder.
     """
 
     ## Main Configuration
@@ -76,6 +76,8 @@ def search_and_store_unstable_examples():
     # If True, save all instances and simulation results
     update_database = True
     # The total number of random RB instances to generate and store.
+    # One can run this function for multiple times with increasing `num_examples`
+    # then the new instances will be added to the checkpoint file each time.
     num_examples = 10000
 
     ## Scatter Plot Settings (Figures 7 & 13)
@@ -90,7 +92,7 @@ def search_and_store_unstable_examples():
     ## LP & Whittle Index Simulation Settings
     # --------------------------------------------------------------------------
     # If True, runs simulations for the LP and Whittle index policies.
-    do_simulation = True
+    do_simulation = True if input_plot_cdf is None else input_plot_cdf
     # The number of arms to use in the simulations.
     N = 500
     # The number of simulation steps, in thousands (e.g., 20 means 20,000 steps).
@@ -98,6 +100,7 @@ def search_and_store_unstable_examples():
     # The list of policies to simulate, which should be a subset of ["lppriority", "whittle"]
     policy_names = ["lppriority", "whittle"]
     # Simulates only the first `simulate_up_to_ith` non-UGAP examples.
+    # One can run this function for multiple times with increasing `simulate_up_to_ith`
     simulate_up_to_ith = 10000
 
     ## CDF Plot Settings (Figures 8 & 14)
@@ -105,7 +108,7 @@ def search_and_store_unstable_examples():
     # NOTE: These options require the LP and Whittle index simulations to be complete.
     # If True, plots the Cumulative Distribution Function (CDF) of the optimality
     # ratio for all locally unstable instances.
-    plot_subopt_cdf = True
+    plot_subopt_cdf = True if input_plot_cdf is None else input_plot_cdf
     # If True, saves locally unstable instances with an optimality ratio <= 0.9
     # to the `setting_data/local_unstable_subopt/` directory.
     save_subopt_examples = True
@@ -119,6 +122,7 @@ def search_and_store_unstable_examples():
     # If True, runs simulations for the FTVA policy on the random instances.
     do_ftva_simulation = False
     # Simulates FTVA for the first `simulate_ftva_up_to_ith` non-UGAP examples.
+    # One can run this function for multiple times with increasing `simulate_ftva_up_to_ith`
     simulate_ftva_up_to_ith = 500
 
     ## Synchronization Time Analysis (Not in Paper)
@@ -152,11 +156,14 @@ def search_and_store_unstable_examples():
     # The probability distribution used to generate the random RB instances.
     # Options: "uniform", "dirichlet", "CL", "dirichlet-uniform-nzR0"
     distr = "dirichlet"
+    # override if input distribution is specified
+    if input_distr is not None:
+        distr = input_distr
     # The laziness parameter. If not None, modify the transition probability
     # such that the state stays unchanged with the probability `laziness`.
     laziness = None
     # The sparcity parameter for the Dirichlet distribution.
-    alpha = 0.05
+    alpha = 0.05 if input_alpha is None else input_alpha
     # The parameter for the "CL" distribution; must be > 3.
     beta = 4
 
@@ -790,12 +797,25 @@ if __name__ == "__main__":
     np.random.seed(114514)
     np.set_printoptions(precision=3)
     np.set_printoptions(suppress=True)
-    search_and_store_unstable_examples()
 
-    # np.random.seed(42)
-    # for i in range(8):
-    #     setting = rb_settings.RandomExample(sspa_size=8, distr="dirichlet", parameters=[1])
-    #     setting_path = "setting_data/random-size-8-uniform-({})".format(i)
-    #     if i >= 4:
-    #         save_bandit(setting, setting_path, None)
-
+    ## Script Execution Instructions
+    # --------------------------------------------------------------------------
+    # This script should be run multiple times with different input parameters
+    # to generate the data and figures for the paper.
+    #
+    # To reproduce specific figures, use the following configurations:
+    #
+    #   - Figure 7(a):      `input_alpha=1.0`,  `input_plot_cdf=False`, `input_distr="dirichlet"`
+    #   - Figure 7(b):      `input_alpha=0.2`,  `input_plot_cdf=False`, `input_distr="dirichlet"`
+    #   - Figures 7(c), 8:  `input_alpha=0.05`, `input_plot_cdf=True`,  `input_distr="dirichlet"`
+    #   - Figure 13(a):     `input_alpha=0.2`,  `input_plot_cdf=False`, `input_distr="dirichlet-uniform-nzR0"`
+    #   - Figures 13(b), 14:`input_alpha=0.05`, `input_plot_cdf=True`,  `input_distr="dirichlet-uniform-nzR0"`
+    #
+    # NOTE:
+    # - A full run with default parameters is time-consuming. For quicker tests,
+    #   you can reduce `num_examples` (e.g., to 5000) and `simulate_up_to_ith`
+    #   (e.g., to 1000) within the function.
+    # - The script saves progress at the end of the run, so you can increase these
+    #   values incrementally across runs without losing previous work.
+    # --------------------------------------------------------------------------
+    search_and_store_unstable_examples(input_alpha=0.05, input_plot_cdf=True, input_distr="dirichlet")

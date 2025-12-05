@@ -474,6 +474,36 @@ class ConveyorExample(object):
             r_disturb = 0
         return probs_L, probs_R, action_script, suggest_act_frac, r_disturb
 
+class MachineMaintenanceExample(object):
+    def __init__(self):
+        self.sspa_size = 5
+        self.trans_tensor = np.zeros((5,2,5))
+        self.trans_tensor[0,1,1] = 1
+        self.trans_tensor[1,1,2] = 1/2
+        self.trans_tensor[2,1,3] = 1/5
+        self.trans_tensor[3,1,4] = 1/7
+        self.trans_tensor[4,1,4] = 0.9
+        self.trans_tensor[4,1,0] = 0.1
+
+        self.trans_tensor[4,0,0] = 0.1
+        for i in range(1,4):
+            self.trans_tensor[i,0,i-1] = 1
+        self.trans_tensor[0,0,0] = 1
+
+        for i in range(0,5):
+            self.trans_tensor[i,1,i] += 1 - np.sum(self.trans_tensor[i,1,:])
+            self.trans_tensor[i,0,i] += 1 - np.sum(self.trans_tensor[i,0,:])
+
+        self.reward_tensor = np.zeros((5,2))
+        self.reward_tensor[4,1] = 1
+        self.reward_tensor[4,0] = 1
+        self.reward_tensor[0,0] = -5
+        self.reward_tensor[1,0] = -3
+        self.reward_tensor[2,0] = -1
+        self.reward_tensor[3,0] = -0
+
+        self.suggest_act_frac = 0.60
+
 
 class NonSAExample(object):
     def __init__(self):

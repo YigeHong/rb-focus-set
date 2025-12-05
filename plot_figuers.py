@@ -56,19 +56,20 @@ def filter_settings(setting_names, setting_dir, have_local_unstable):
 
 
 
-def figure_from_multiple_files():
+def figure_from_multiple_files(font_size):
     """
     Generate Figures for comparing different policies' optimality gap ratios as N increases
     Requires first running `experiments2.py`, and then read the saved data from folder `fig_data`
     The generated figures will be saved in the folder `figs2`
     """
-    settings = ["three-states", "new2-eight-states", "non-sa", "non-sa-big2"] \
-               + ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]]
-    policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id"]
+    settings = ["mm"]
+                #["three-states", "new2-eight-states", "non-sa", "non-sa-big2"] \
+               #+ ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]]
+    policies = ["lppriority", "id"] #["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id"]
     linestyle_str = ["-.", "-", "--", "-.", "--", "-"]
-    policy_markers = ["v",".","^","s","p","*"]
-    policy_colors = ["m","c","y","r","g","b"]
-    policy2label = {"id":"ID policy", "setexp":"Set expansion", "lppriority":"LP index policy",
+    policy_markers = [".","v","^","s","p","*"]
+    policy_colors = ["r","g","b","m","c","y"]
+    policy2label = {"id":"ID policy (our work)", "setexp":"Set expansion", "lppriority":"LP index policy",
                     "whittle":"Whittle index policy", "ftva":"FTVA", "setexp-priority":"Set expansion (with LP index)",
                     "twoset-v1":"Two set v1"}
     # skip showing some policies without changing the color and markers of the rest;
@@ -82,7 +83,7 @@ def figure_from_multiple_files():
     # The ranges of N to be plotted
     Ns = np.array(list(range(100,1100,100))) #np.array(list(range(1500, 5500, 500))) # list(range(1000, 20000, 1000))
     main_init_method = "random"
-    file_dir = "fig_data"
+    file_dir = "fig_data_ineq"
 
     setting_policy_init_tuples = [(s_name, p_name, main_init_method) for s_name in settings for p_name in policies]
     # add some curves manually, commented out for normal runs
@@ -136,14 +137,14 @@ def figure_from_multiple_files():
         elif setting_name == "non-sa":
             upper_bound = 1
         else:
-            files_w_prefix = [filename for filename in os.listdir("fig_data")
-                              if filename.startswith("{}-{}-N{}-{}-{}".format(setting_name, "ftva", 100, 1000, main_init_method))]
-            with open("fig_data/"+files_w_prefix[0], 'rb') as f:
+            files_w_prefix = [filename for filename in os.listdir(file_dir)
+                              if filename.startswith("{}-{}-N{}-{}-{}".format(setting_name, "id", 100, 1000, main_init_method))]
+            with open(os.path.join(file_dir, files_w_prefix[0]), 'rb') as f:
                 setting_and_data = pickle.load(f)
                 upper_bound = setting_and_data["upper bound"]
 
         ## -----Plot the upper bound and the policies-----
-        plt.plot(Ns, np.array([1] * len(Ns)), label="Upper bound", linestyle="--", color="k")
+        plt.plot(Ns, np.array([upper_bound] * len(Ns)), label="Upper bound", linestyle="--", color="k")
         for i, policy_name in enumerate(policies):
             if (policy_name == "whittle") and ((setting_name, policy_name) not in batch_means_dict):
                 pass
@@ -151,8 +152,8 @@ def figure_from_multiple_files():
                 pass
             else:
                 cur_batch_means = batch_means_dict[(setting_name, policy_name, main_init_method)]
-                plt.errorbar(Ns, np.mean(cur_batch_means, axis=1) / upper_bound,
-                             yerr=2*np.std(cur_batch_means, axis=1)/np.sqrt(len(cur_batch_means)) / upper_bound,
+                plt.errorbar(Ns, np.mean(cur_batch_means, axis=1),
+                             yerr=2*np.std(cur_batch_means, axis=1)/np.sqrt(len(cur_batch_means)),
                              label=policy2label[policy_name], linewidth=1.5, linestyle=linestyle_str[i],
                              marker=policy_markers[i], markersize=8, color=policy_colors[i])
 
@@ -168,24 +169,25 @@ def figure_from_multiple_files():
         #                           marker=temp_marker, linewidth=1.5, markersize=8)
 
         ## -----Figure settings-----
-        plt.xlabel("N", fontsize=14)
-        plt.xticks(fontsize=14)
-        plt.ylabel("Optimality ratio", fontsize=14)
-        plt.yticks(fontsize=14)
-        if setting2yrange[setting_name] is not None:
-            plt.ylim(setting2yrange[setting_name])
+        plt.xlabel("N", fontsize=font_size)
+        plt.xticks(fontsize=font_size)
+        plt.ylabel("Reward", fontsize=font_size)
+        plt.yticks(fontsize=font_size)
+        # if setting2yrange[setting_name] is not None:
+        #     plt.ylim(setting2yrange[setting_name])
         plt.tight_layout()
         plt.grid()
-        if setting2legend_position[setting_name] is None:
-            plt.legend(fontsize=14)
-        elif type(setting2legend_position[setting_name]) is str:
-            plt.legend(fontsize=14,loc=setting2legend_position[setting_name])
-        else:
-            plt.legend(fontsize=14,loc="lower right", bbox_to_anchor=setting2legend_position[setting_name])
-        plt.savefig("figs2/{}-N{}-{}-{}.pdf".format(setting_name, Ns[0], Ns[-1], main_init_method))
+        plt.legend(fontsize=font_size)
+        # if setting2legend_position[setting_name] is None:
+        #     plt.legend(fontsize=14)
+        # elif type(setting2legend_position[setting_name]) is str:
+        #     plt.legend(fontsize=14,loc=setting2legend_position[setting_name])
+        # else:
+        #     plt.legend(fontsize=14,loc="lower right", bbox_to_anchor=setting2legend_position[setting_name])
+        plt.savefig("fig_ineq/{}-N{}-{}-{}.pdf".format(setting_name, Ns[0], Ns[-1], main_init_method))
         plt.show()
 
 if __name__ == "__main__":
     # Run this function to plot figures;
     # Modify the code inside the function to change the printing options
-    figure_from_multiple_files()
+    figure_from_multiple_files(20)

@@ -207,12 +207,15 @@ class SingleArmAnalyzer(object):
                                         + cp.sum(cp.multiply(self.y[:,0], subsidy_reward_0)))
         return relaxed_objective
 
-    def solve_lp(self, verbose=True):
+    def solve_lp(self, verbose=True, budget_constr=True):
         """
         run this before doing anything
         """
         objective = self.get_objective()
-        constrs = self.get_stationary_constraints() + self.get_budget_constraints() + self.get_basic_constraints()
+        if budget_constr:
+            constrs = self.get_stationary_constraints() + self.get_basic_constraints() + self.get_budget_constraints()
+        else:
+            constrs = self.get_stationary_constraints() + self.get_basic_constraints() # + self.get_budget_constraints()
         problem = cp.Problem(objective, constrs)
         self.opt_value = problem.solve(verbose=False)
         if verbose:
@@ -220,6 +223,7 @@ class SingleArmAnalyzer(object):
             print("Optimal value ", self.opt_value)
             print("Optimal var")
             print(self.y.value)
+            print("Average cost: {}".format(np.sum(self.y.value[:,1])))
 
         # compute some essential quantities and for later use
         y = self.y.value
@@ -281,7 +285,11 @@ class SingleArmAnalyzer(object):
             print("action gap =  ", self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0])
             print("---------------------------")
 
-        priority_list = np.flip(np.argsort(self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0]))
+        # priority_list = np.flip(np.argsort(self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0]))
+        diffs = self.q_func_relaxed[:,1] - self.q_func_relaxed[:,0]
+        sorted_indices_all = np.argsort(diffs)[::-1]
+        positive_mask = diffs[sorted_indices_all] >= 0
+        priority_list = sorted_indices_all[positive_mask]
         return list(priority_list)
 
     def understand_lagrange_relaxation(self, lower, upper, stepsize):
@@ -483,6 +491,7 @@ class PriorityPolicy(object):
         The policy that uses a certain priority to allocate budget
         :param sspa_size: size of the state space S
         :param priority_list: a list of states represented by numbers, from high priority to low priority
+                              (excludes fluid passive states)
         :param N: number of arms
         :param act_frac: the fraction of arms to activate in each time slot
         """
@@ -498,7 +507,8 @@ class PriorityPolicy(object):
         :return: the actions taken by the arms under the policy
         """
         # return actions from states
-        s2indices = {state:None for state in self.sspa} # each key is a list of indices in the range of self.N
+        # each key is a list of indices in the range of self.N
+        s2indices = {state:None for state in self.sspa}
         # find out the arms whose (state, action) = sa_pair
         for state in self.sspa:
             s2indices[state] = np.where(cur_states == state)[0]
@@ -507,6 +517,7 @@ class PriorityPolicy(object):
         rem_budget = round(self.N * self.act_frac)
         rem_budget += np.random.binomial(1, self.N * self.act_frac - rem_budget)  # randomized rounding
         # go from high priority to low priority
+        # Recall that the priority list exclude fluid passive states, for the inequality constraint setting
         for state in self.priority_list:
             num_arms_this_state = len(s2indices[state])
             if rem_budget >= num_arms_this_state:
@@ -518,7 +529,7 @@ class PriorityPolicy(object):
                 actions[chosen_indices] = 1
                 rem_budget = 0
                 break
-        assert rem_budget == 0, "something is wrong, whittles index should use up all the budget"
+        # assert rem_budget == 0, "something is wrong, whittles index should use up all the budget"
         return actions
 
     def get_sa_pair_fracs(self, cur_state_fracs):
@@ -534,7 +545,7 @@ class PriorityPolicy(object):
                 sa_pair_fracs[state, 1] = rem_budget_normalize
                 sa_pair_fracs[state, 0] = frac_arms_this_state - rem_budget_normalize
                 rem_budget_normalize = 0
-        assert rem_budget_normalize == 0.0, "something is wrong, whittles index should use up all the budget"
+        # assert rem_budget_normalize == 0.0, "something is wrong, whittles index should use up all the budget"
         return sa_pair_fracs
 
 
@@ -843,14 +854,15 @@ class IDPolicy(object):
             request_ignored = indices_request[(-int(num_requests - budget)):]
             actions[request_ignored] = 0
             num_action_rect = len(request_ignored)
-        elif num_requests < budget:
-            indices_no_request = np.sort(np.where(actions==0)[0])
-            no_request_pulled = indices_no_request[(-int(budget - num_requests)):]
-            actions[no_request_pulled] = 1
-            num_action_rect = len(no_request_pulled)
+        ### switch to inequality version
+        # elif num_requests < budget:
+        #     indices_no_request = np.sort(np.where(actions==0)[0])
+        #     no_request_pulled = indices_no_request[(-int(budget - num_requests)):]
+        #     actions[no_request_pulled] = 1
+        #     num_action_rect = len(no_request_pulled)
         else:
             num_action_rect = 0
-        assert np.sum(actions) == budget
+        assert np.sum(actions) <= budget
 
         if not output_ideal_actions:
             return actions, self.N - num_action_rect

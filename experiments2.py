@@ -157,6 +157,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
         setting = rb_settings.BigNonSAExample("v3")
     elif setting_name == "non-sa-big4":
         setting = rb_settings.BigNonSAExample("v4")
+    elif setting_name == "mm":
+        setting = rb_settings.MachineMaintenanceExample()
     elif setting_path is not None:
         setting = rb_settings.ExampleFromFile(setting_path)
     else:
@@ -181,8 +183,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
 
     # Preprocessing stage. Solve LP relaxation, Whittle index, LP index, and some other parameters.
     analyzer = SingleArmAnalyzer(setting.sspa_size, setting.trans_tensor, setting.reward_tensor, act_frac)
-    y = analyzer.solve_lp()[1]
-    print("min(y(sneu,1), y(sneu,0)) = ", y2nondegeneracy(y))
+    y = analyzer.solve_lp(budget_constr=True)[1]
+    # print("min(y(sneu,1), y(sneu,0)) = ", y2nondegeneracy(y))
     W = analyzer.compute_W(abstol=1e-10)[0]
     print("2*lambda_W = ", 2*np.linalg.norm(W, ord=2))
     if setting_name == "eight-states":
@@ -192,13 +194,23 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
     print("priority list =", priority_list)
     whittle_priority = analyzer.solve_whittles_policy()
     print("Whittle priority=", whittle_priority)
-    U = analyzer.compute_U(abstol=1e-10)[0]
-    if U is not np.inf:
-        print("spectral norm of U=", np.max(np.abs(np.linalg.eigvals(U))))
-    else:
-        print("U diverges, locally unstable")
+    # U = analyzer.compute_U(abstol=1e-10)[0]
+    # if U is not np.inf:
+    #     print("spectral norm of U=", np.max(np.abs(np.linalg.eigvals(U))))
+    # else:
+    #     print("U diverges, locally unstable")
+
 
     if no_run:
+        # distr_to_plot = np.sum(y, axis=1)
+        # distr_to_plot = np.sum(y, axis=1)[::-1]
+        # distr_to_plot = np.array([1/3,1/3,1/3,0,0])
+        distr_to_plot = np.array([0.2, 0.59, 0.21,  0.,   0.,  ])
+        frame1 = plt.gca()
+        frame1.axes.axis('off')
+        plt.bar(np.arange(0,5), distr_to_plot) #, color='none', edgecolor='black')
+        plt.tight_layout()
+        plt.show()
         return
 
     # define file name, load existing data if there is any
@@ -273,8 +285,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                 for t in range(T):
                     cur_states = rb.get_states()
                     actions, num_ideal_acts = policy.get_actions(cur_states)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     recent_total_reward += instant_reward
@@ -297,8 +309,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     focus_set, non_shrink_flag = policy.get_new_focus_set(cur_states=cur_states,
                                                                           last_focus_set=focus_set)
                     actions, conformity_flag = policy.get_actions(cur_states, focus_set)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     conformity_count += conformity_flag
                     non_shrink_count += non_shrink_flag
                     instant_reward = rb.step(actions)
@@ -324,8 +336,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     cur_states = rb.get_states()
                     focus_set = policy.get_new_focus_set(cur_states=cur_states)
                     actions, conformity_flag = policy.get_actions(cur_states, focus_set)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
@@ -350,8 +362,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     cur_states = rb.get_states()
                     focus_set = policy.get_new_focus_set(cur_states=cur_states, subproblem="tight") ##
                     actions, conformity_flag = policy.get_actions(cur_states, focus_set)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
@@ -371,8 +383,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     focus_set, non_shrink_flag = policy.get_new_focus_set(cur_states=cur_states,
                                                                           last_focus_set=focus_set)
                     actions, conformity_flag = policy.get_actions(cur_states, focus_set, tb_rule="ID")
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     conformity_count += conformity_flag
                     non_shrink_count += non_shrink_flag
                     instant_reward = rb.step(actions)
@@ -392,8 +404,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     cur_states = rb.get_states()
                     focus_set = policy.get_new_focus_set(cur_states=cur_states)
                     actions, conformity_flag = policy.get_actions(cur_states, focus_set, tb_rule="ID")
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
@@ -414,8 +426,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                                                                           last_focus_set=focus_set)
                     actions, conformity_flag = policy.get_actions(cur_states, focus_set, tb_rule="priority",
                                                                   tb_priority=priority_list)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     conformity_count += conformity_flag
                     non_shrink_count += non_shrink_flag
                     instant_reward = rb.step(actions)
@@ -436,8 +448,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     focus_set = policy.get_new_focus_set(cur_states=cur_states)
                     actions, conformity_flag = policy.get_actions(cur_states, focus_set, tb_rule="priority",
                                                                   tb_priority=priority_list)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     conformity_count += conformity_flag
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
@@ -456,8 +468,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                 for t in range(T):
                     prev_state = rb.get_states()
                     actions, virtual_actions = policy.get_actions(prev_state)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     num_good_arms = np.sum(np.all([actions==virtual_actions, prev_state==policy.virtual_states], axis=0))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
@@ -478,8 +490,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     actions = policy.get_actions(cur_states)
                     if debug:
                         print(states_to_scaled_state_counts(setting.sspa_size, N, cur_states))
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     recent_total_reward += instant_reward
@@ -499,8 +511,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                 for t in range(T):
                     cur_states = rb.get_states()
                     actions = policy.get_actions(cur_states)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     recent_total_reward += instant_reward
@@ -515,8 +527,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     actions = policy.get_actions(cur_states)
                     if debug:
                         print(states_to_scaled_state_counts(setting.sspa_size, N, cur_states))
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     recent_total_reward += instant_reward
@@ -532,8 +544,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     cur_states = rb.get_states()
                     OL_set = policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set) ###
                     actions = policy.get_actions(cur_states, OL_set)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     recent_total_reward += instant_reward
@@ -552,8 +564,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     cur_states = rb.get_states()
                     OL_set = policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set) ###
                     actions = policy.get_actions(cur_states, OL_set)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     recent_total_reward += instant_reward
@@ -572,8 +584,8 @@ def run_policies(setting_name, policy_name, init_method, T, setting_path=None, N
                     cur_states = rb.get_states()
                     OL_set = policy.get_new_focus_set(cur_states=cur_states, last_OL_set=OL_set)
                     actions, EP_set = policy.get_actions_with_EP_set(cur_states=cur_states, cur_OL_set=OL_set, last_EP_set=EP_set)
-                    assert np.sum(actions) == round(act_frac*N), \
-                        "Global budget inconsistent: {}!={}".format(np.sum(actions), round(act_frac*N))
+                    assert np.sum(actions) <= round(act_frac*N), \
+                        "Global budget inconsistent: {}>{}".format(np.sum(actions), round(act_frac*N))
                     instant_reward = rb.step(actions)
                     total_reward += instant_reward
                     recent_total_reward += instant_reward
@@ -631,64 +643,70 @@ if __name__ == "__main__":
     np.set_printoptions(suppress=True)
     np.set_printoptions(linewidth=600)
 
-    # The code below generates the data for the main policy-comparison figures
-    # in the RB-unichain paper (Figures 6, 9, and 10).
-    # The resulting data is saved to the `fig_data/` directory, which can
-    # then be used by `plot_figures.py` to reproduce the plots.
+    run_policies("mm", "lppriority", "random", 2*10**4, setting_path=None, Ns=None, save_dir="fig_data_ineq",
+                 skip_N_below=None, no_run=True, debug=False, note="T2e4debug", init_state_fracs=None)
+    # run_policies("mm", "id", "random", 2*10**4, setting_path=None, Ns=None, save_dir="fig_data_ineq",
+    #              skip_N_below=None, no_run=False, debug=False, note="T2e4", init_state_fracs=None)
+
+
+    # # The code below generates the data for the main policy-comparison figures
+    # # in the RB-unichain paper (Figures 6, 9, and 10).
+    # # The resulting data is saved to the `fig_data/` directory, which can
+    # # then be used by `plot_figures.py` to reproduce the plots.
+    # #
+    # # NOTE: Other figures are generated by different scripts:
+    # # - Figures 7, 8, 13, 14 (scatter plots and CDFs) are generated by
+    # #   `understand_assumptions.py`.
+    # # - Appendix H.5 figures (ID and set-expansion analysis) are generated
+    # #   by `understand_id_and_set_expansion.py`.
+    # my_pool = mp.Pool(10)
+    # task_list = []
     #
-    # NOTE: Other figures are generated by different scripts:
-    # - Figures 7, 8, 13, 14 (scatter plots and CDFs) are generated by
-    #   `understand_assumptions.py`.
-    # - Appendix H.5 figures (ID and set-expansion analysis) are generated
-    #   by `understand_id_and_set_expansion.py`.
-    my_pool = mp.Pool(10)
-    task_list = []
-
-    # --------------------------------------------------------------------------
-    # DATA FOR FIGURES 6 & 10
-    # Simulate instances from Section 8.1 (UGAP counterexamples) and
-    # Section 8.3 (SA counterexamples).
-    # --------------------------------------------------------------------------
-    for setting_name in ["three-states", "new2-eight-states", "non-sa", "non-sa-big2"]:
-        for policy_name in ["id", "setexp", "setexp-priority", "ftva", "lppriority", "whittle"]:
-            if (setting_name in ["non-sa", "non-sa-big2"]) and (policy_name == "ftva"):
-                T = 16*10**4
-                Tstr = "16e4"
-            else:
-                T = 2*10**4
-                Tstr = "2e4"
-            for rep_id in range(1, 6):
-                task_list.append(my_pool.apply_async(run_policies,
-                                kwds={"setting_name": setting_name,
-                                      "policy_name": policy_name,
-                                      "init_method": "random",
-                                      "T": T,
-                                      "Ns": np.arange(100, 1100, 100),
-                                      "save_dir": "fig_data",
-                                      "note": f"T{Tstr}r{rep_id}"}))
-
-    # --------------------------------------------------------------------------
-    # DATA FOR FIGURE 9
-    # Simulate the randomly generated "local unstable suboptimal" instances from
-    # Section 8.2. These specific instances (`random-size-10-dirichlet-0.05-(355)`
-    # and `random-size-10-dirichlet-0.05-(582)`) are stored in the folder `setting_data`,
-    # and can also be generated by running `understand_assumptions.py` with seed 114514.
-    # --------------------------------------------------------------------------
-    for i in [355, 582]:
-        setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
-        setting_path = os.path.join("setting_data", "local_unstable_subopt", setting_name)
-        for policy_name in ["id", "setexp", "setexp-priority", "ftva", "lppriority", "whittle"]:
-            for rep_id in range(1, 6):
-                task_list.append(my_pool.apply_async(run_policies,
-                                        kwds={"setting_name": setting_name,
-                                              "policy_name": policy_name,
-                                              "init_method": "random",
-                                              "T": 2*10**4,
-                                              "setting_path": setting_path,
-                                              "Ns": np.arange(100, 1100, 100),
-                                              "save_dir": "fig_data",
-                                              "note": "T2e4r{}".format(rep_id)}))
-
-    my_pool.close()
-    my_pool.join()
+    # # --------------------------------------------------------------------------
+    # # DATA FOR FIGURES 6 & 10
+    # # Simulate instances from Section 8.1 (UGAP counterexamples) and
+    # # Section 8.3 (SA counterexamples).
+    # # --------------------------------------------------------------------------
+    # for setting_name in ["three-states", "new2-eight-states", "non-sa", "non-sa-big2"]:
+    #     for policy_name in ["id", "setexp", "setexp-priority", "ftva", "lppriority", "whittle"]:
+    #         if (setting_name in ["non-sa", "non-sa-big2"]) and (policy_name == "ftva"):
+    #             T = 16*10**4
+    #             Tstr = "16e4"
+    #         else:
+    #             T = 2*10**4
+    #             Tstr = "2e4"
+    #         for rep_id in range(1, 6):
+    #             task_list.append(my_pool.apply_async(run_policies,
+    #                             kwds={"setting_name": setting_name,
+    #                                   "policy_name": policy_name,
+    #                                   "init_method": "random",
+    #                                   "T": T,
+    #                                   "Ns": np.arange(100, 1100, 100),
+    #                                   "save_dir": "fig_data",
+    #                                   "note": f"T{Tstr}r{rep_id}"}))
+    #
+    # # --------------------------------------------------------------------------
+    # # DATA FOR FIGURE 9
+    # # Simulate the randomly generated "local unstable suboptimal" instances from
+    # # Section 8.2. These specific instances (`random-size-10-dirichlet-0.05-(355)`
+    # # and `random-size-10-dirichlet-0.05-(582)`) are stored in the folder `setting_data`,
+    # # and can also be generated by running `understand_assumptions.py` with seed 114514.
+    # # --------------------------------------------------------------------------
+    # for i in [355, 582]:
+    #     setting_name = "random-size-10-dirichlet-0.05-({})".format(i)
+    #     setting_path = os.path.join("setting_data", "local_unstable_subopt", setting_name)
+    #     for policy_name in ["id", "setexp", "setexp-priority", "ftva", "lppriority", "whittle"]:
+    #         for rep_id in range(1, 6):
+    #             task_list.append(my_pool.apply_async(run_policies,
+    #                                     kwds={"setting_name": setting_name,
+    #                                           "policy_name": policy_name,
+    #                                           "init_method": "random",
+    #                                           "T": 2*10**4,
+    #                                           "setting_path": setting_path,
+    #                                           "Ns": np.arange(100, 1100, 100),
+    #                                           "save_dir": "fig_data",
+    #                                           "note": "T2e4r{}".format(rep_id)}))
+    #
+    # my_pool.close()
+    # my_pool.join()
 

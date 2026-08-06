@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# OS and Python noise
+# ---------------------------------------------------------------------------
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# ---------------------------------------------------------------------------
+# Machine-local editor settings
+# .vscode/settings.json hardcodes an absolute interpreter path, so it is not
+# portable. (.idea/ carries its own .gitignore for workspace.xml and shelf/.)
+# ---------------------------------------------------------------------------
+.vscode/
+
+# ---------------------------------------------------------------------------
+# Simulation output and figures
+#
+# This repo deliberately tracks a hand-picked subset of the results -- see the
+# commit "Arrange git record of data files and figures". Listing a directory
+# below does NOT untrack anything already committed: git keeps tracking,
+# diffing and committing files it already knows about, and only new,
+# never-committed files are hidden.
+#
+# To start versioning a new result on purpose, force it:
+#     git add -f fig_data/<the-one-file-you-want>
+# ---------------------------------------------------------------------------
+
+# directories with both tracked and untracked content
+fig_data/
+figs2/
+random_example_data/
+setting_data/
+
+# directories that are entirely uncommitted
+all_outdated_files/
+fig_data_250327/
+fig_data_250331/
+fig_data_ineq/
+fig_data_server_0922/
+fig_data_server_0925/
+fig_data_server_0928/
+fig_data_server_1001/
+fig_ineq/
+figs3/
+figs_blog/
+formal_figs/
+
+# formal_figs_exponential/ is NOT ignored: it holds the paper-ready figures,
+# which are small and worth versioning. Only its scratch subfolders are.
+formal_figs_exponential/paper_v241001/
+formal_figs_exponential/untitled folder/
+
+# Note: *.py files are intentionally NOT ignored, so that new scripts such as
+# local_make_animations.py stay visible in `git status` instead of being lost.

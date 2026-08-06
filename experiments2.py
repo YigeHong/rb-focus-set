@@ -643,8 +643,8 @@ if __name__ == "__main__":
     np.set_printoptions(suppress=True)
     np.set_printoptions(linewidth=600)
 
-    run_policies("mm", "lppriority", "random", 2*10**4, setting_path=None, Ns=None, save_dir="fig_data_ineq",
-                 skip_N_below=None, no_run=True, debug=False, note="T2e4debug", init_state_fracs=None)
+    run_policies("mm", "random-tb", "random", 2*10**4, setting_path=None, Ns=None, save_dir="fig_data_ineq",
+                 skip_N_below=None, no_run=False, debug=False, note="T2e4debug", init_state_fracs=None)
     # run_policies("mm", "id", "random", 2*10**4, setting_path=None, Ns=None, save_dir="fig_data_ineq",
     #              skip_N_below=None, no_run=False, debug=False, note="T2e4", init_state_fracs=None)
 

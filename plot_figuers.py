@@ -65,13 +65,13 @@ def figure_from_multiple_files(font_size):
     settings = ["mm"]
                 #["three-states", "new2-eight-states", "non-sa", "non-sa-big2"] \
                #+ ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]]
-    policies = ["lppriority", "id"] #["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id"]
+    policies = ["random-tb", "id"] #["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id"]
     linestyle_str = ["-.", "-", "--", "-.", "--", "-"]
     policy_markers = [".","v","^","s","p","*"]
     policy_colors = ["r","g","b","m","c","y"]
     policy2label = {"id":"ID policy (our work)", "setexp":"Set expansion", "lppriority":"LP index policy",
                     "whittle":"Whittle index policy", "ftva":"FTVA", "setexp-priority":"Set expansion (with LP index)",
-                    "twoset-v1":"Two set v1"}
+                    "twoset-v1":"Two set v1", "random-tb": "Random Tie-breaking"}
     # skip showing some policies without changing the color and markers of the rest;
     # should be [] for normal runs
     skip_policies = []

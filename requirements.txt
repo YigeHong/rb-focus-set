@@ -1,0 +1,48 @@
+# Environment for rb-focus-set
+#
+# Python 3.10.7  (base: /Library/Frameworks/Python.framework/Versions/3.10)
+# Captured from the venv PyCharm uses: ../RB/venv
+#
+#   python3.10 -m venv venv
+#   ./venv/bin/python -m pip install -r requirements.txt
+#
+# Versions below are exactly what the RB-unichain / RB-focus-set experiments
+# were run against. Pinned rather than floated because numpy 1.24 and
+# cvxpy 1.3 predate several breaking upstream releases.
+
+# --- imported directly by the project ---
+numpy==1.24.2
+scipy==1.10.1
+cvxpy==1.3.1
+matplotlib==3.7.1
+
+# --- cvxpy solver backends ---
+# NOTE: osqp 1.x is much newer than cvxpy 1.3.1, which was built against
+# osqp 0.6.x. Solves currently succeed, but if OSQP starts raising odd
+# errors, pin `osqp<1` first.
+ecos==2.0.14
+osqp==1.1.3
+scs==3.2.11
+
+# --- matplotlib runtime deps ---
+contourpy==1.3.2
+cycler==0.12.1
+fonttools==4.63.0
+kiwisolver==1.5.0
+packaging==26.3
+pillow==12.3.0
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+six==1.17.0
+
+# --- present in the venv but not imported by any tracked script ---
+# Kept so this file reproduces the working environment exactly.
+# Safe to drop if you want a leaner install.
+ffmpeg-python==0.2.0
+future==1.0.0
+Jinja2==3.1.6
+joblib==1.5.3
+MarkupSafe==3.0.3
+pandas==2.2.2
+pytz==2026.3.post1
+tzdata==2026.3

@@ -43,10 +43,11 @@ fig_data_server_1001/
 fig_ineq/
 figs3/
 figs_blog/
-formal_figs/
 
-# formal_figs_exponential/ is NOT ignored: it holds the paper-ready figures,
-# which are small and worth versioning. Only its scratch subfolders are.
+# formal_figs/ and formal_figs_exponential/ are NOT ignored: they hold the
+# paper-ready figures, which are small (~1 MB in total) and worth versioning.
+# Only their scratch subfolders are excluded.
+formal_figs/untitled folder/
 formal_figs_exponential/paper_v241001/
 formal_figs_exponential/untitled folder/
 

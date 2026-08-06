@@ -415,10 +415,49 @@ def figure_from_multiple_files_flexible_N(note=None):
     """
     Plotting function that reads data files with Ns to combine into one plot.
     """
+    ## ------------------------------------------------------------------------
+    ## HOW TO REPRODUCE THE FIGURES OF THE EXPONENTIAL-ASYMPTOTICS PAPER
+    ##
+    ## Entry point: __main__ must call figure_from_multiple_files_flexible_N().
+    ## Only the two variables `settings` and `mode` need to change between the
+    ## two runs below; every other option can stay as written.
+    ##
+    ## Each run writes every figure twice: to figs3/ (file name carries the N
+    ## range and the init method) and to formal_figs_exponential/ (paper-ready
+    ## name). Both folders must already exist.
+    ##
+    ## (A) The five "total optimality gap ratio" figures
+    ##       formal_figs_exponential/total-gap-ratio-<setting>.pdf
+    ##     set:
+    ##       settings = ["new2-eight-states-045"] + ["conveyor-belt-nd-12"] \
+    ##                  + ["random-size-8-uniform-({})".format(i) for i in [1, 6, 0]]
+    ##       mode = "total-opt-gap-ratio"
+    ##     Legends are drawn only on the settings named in `legend_settings`
+    ##     (upper left). `hide_above_N` has no effect here, because
+    ##     "total-opt-gap-ratio" is not listed in `hide_above_N_modes`.
+    ##     new2-eight-states-045 and conveyor-belt-nd-12 have no Whittle index
+    ##     data, so those two panels show 4 curves instead of 5.
+    ##
+    ## (B) The one "log optimality gap ratio" figure  <-- configured below
+    ##       formal_figs_exponential/log-gap-ratio-random-size-8-uniform-(1).pdf
+    ##     set:
+    ##       settings = ["random-size-8-uniform-({})".format(i) for i in [1]]
+    ##       mode = "log-opt-gap-ratio"
+    ##     The Whittle and LP index curves are cut off at N = 4000 by
+    ##     `hide_above_N`, since their gap estimates are noise-dominated beyond
+    ##     that. No legend is drawn, because `legend_mode` is "total-opt-gap-ratio".
+    ##
+    ## The init method is resolved per setting by `setting2init` and never needs
+    ## to be set by hand: new2-eight-states-045 and conveyor-belt-nd-12 were run
+    ## with the "bad" init, every other setting with "random".
+    ##
+    ## plt.show() blocks once per figure. To run unattended, use
+    ##   MPLBACKEND=Agg python plot_figuers.py
+    ## ------------------------------------------------------------------------
     # setting names in the unichain aperiodicity paper: ["random-size-10-dirichlet-0.05-({})".format(i) for i in [582, 355]] + ["new2-eight-states", "three-states", "non-sa", "non-sa-big2"]
     # setting names in the exponential paper ["new2-eight-states-045"]+["conveyor-belt-nd-12"]+["random-size-8-uniform-({})".format(i) for i in [1, 6, 0]]
     # other possible settings ["random-size-8-uniform-({})".format(i) for i in [1]] # ["mix-random-size-10-dirichlet-0.05-({})-(2270)-ratio-0.95".format(i) for i in [1436, 6265]] #["stable-size-10-dirichlet-0.05-({})".format(i) for i in [4339]]#, 4149, 4116, 2667, 2270, 9632]]
-    settings = ["random-size-8-uniform-({})".format(i) for i in [1]]
+    settings = ["random-size-8-uniform-({})".format(i) for i in [1]] #["new2-eight-states-045"]+["conveyor-belt-nd-12"]+["random-size-8-uniform-({})".format(i) for i in [1, 6, 0]]
     policies = ["whittle", "lppriority", "ftva", "setexp", "setexp-priority", "id", "twoset-v1", "twoset-faithful"]
     skip_policies =  ["setexp", "setexp-priority","twoset-v1"]
     linestyle_str = ["-.", "-", "--", "-.", "--", "-", "-", "-."]
@@ -435,18 +474,46 @@ def figure_from_multiple_files_flexible_N(note=None):
     batch_size = 8000 # only if batch_size_mode = "fixed"
     burn_in_batch = 1
     N_range = [200, 10000] # closed interval
-    init_method = "random"
-    mode = "total-opt-gap-ratio" # "opt-ratio" or "total-opt-gap-ratio" or "log-opt-gap-ratio"
+    # init method is per-setting: the exponential-paper runs of new2-eight-states-045
+    # and conveyor-belt-nd-12 only exist with the "bad" init, the rest with "random"
+    setting2init = {"new2-eight-states-045": "bad", "conveyor-belt-nd-12": "bad"}
+    init_method_default = "random"
+    mode = "log-opt-gap-ratio" # "opt-ratio" or "total-opt-gap-ratio" or "log-opt-gap-ratio"
     file_dirs = ["fig_data", "fig_data_server_0922", "fig_data_server_0925", "fig_data_server_0928", "fig_data_server_1001"]
     N_tick_ratio = 1000
     tick_locs =  np.arange(0, 11000, 2000)
     tick_labels = [int(N/N_tick_ratio) for N in tick_locs]
     assert np.allclose(np.array(tick_labels)*N_tick_ratio, np.array(tick_locs)), print(tick_labels, tick_locs)
-    legend_on = False
+    # show a legend only for these settings, and only in "total-opt-gap-ratio" mode;
+    # every other setting/mode combination is drawn without one
+    legend_settings = ["new2-eight-states-045", "random-size-8-uniform-(1)"]
+    legend_mode = "total-opt-gap-ratio"
+    legend_loc = "upper left"
+    # hide large-N data points that are too noisy to be reliable:
+    # {setting_name: (policies, N_cutoff)}; points with N > N_cutoff are dropped
+    hide_above_N = {"random-size-8-uniform-(1)": (["whittle", "lppriority"], 4000)}
+    hide_above_N_modes = ["log-opt-gap-ratio"] # modes in which the filtering applies
+    # Font sizes. Keep axis labels >= tick labels >= legend, and keep the ratio
+    # between the largest and the smallest at most ~1.3, otherwise the figure
+    # starts to look internally inconsistent. 14 is the text size of
+    # formal_figs_exponential/sample.png; 18/16/14 keeps the legend at that size
+    # while making the labels readable.
+    # The size a reader actually sees is fontsize * (width on page / 6.4in), e.g.
+    # a 6.4in-wide figure placed in a two-column \columnwidth (~3.4in) is scaled
+    # by 0.53, so fontsize=18 lands at ~9.5pt, about the body-text size of a 10pt paper.
+    # Whatever values are used here, use the SAME ones for every figure in the paper.
+    label_font_size = 18  # xlabel / ylabel
+    tick_font_size = 16   # tick labels
+    legend_font_size = 14 # legend; kept small so it covers less of the curves
+    # legend footprint can also be reduced WITHOUT shrinking its text, via
+    # legend_kwargs below (two columns, tighter spacing, semi-transparent frame)
+    legend_kwargs = dict(framealpha=0.85, labelspacing=0.3, handlelength=1.8,
+                         borderpad=0.35, handletextpad=0.5)
 
 
     all_batch_means = {}
     for setting_name in settings:
+        init_method = setting2init.get(setting_name, init_method_default)
         for policy_name in policies:
             if policy_name in skip_policies:
                 continue
@@ -509,6 +576,11 @@ def figure_from_multiple_files_flexible_N(note=None):
                 all_batch_means[(setting_name,"upper bound")] = setting_and_data["upper bound"]
 
     for setting_name in settings:
+        init_method = setting2init.get(setting_name, init_method_default)
+        # start a fresh figure per setting; plt.show() only clears the figure under
+        # an interactive backend, so without this the settings accumulate onto one axes
+        # when run headless (e.g. MPLBACKEND=Agg)
+        plt.figure()
         # file_prefix = "{}-{}".format(setting_name, "twoset-faithful")
         # file_names = [file_name for file_name in os.listdir(file_dirs[0])
         #               if file_name.startswith(file_prefix) and (init_method in file_name.split("-")[(-2):])]
@@ -545,13 +617,17 @@ def figure_from_multiple_files_flexible_N(note=None):
                 avg_rewards_cur_sorted = avg_rewards_cur[sorted_indices]
                 yerrs_cur_sorted = yerrs_cur[sorted_indices]
                 print(setting_name, policy_name, avg_rewards_cur_sorted, yerrs_cur_sorted)
-                ## special handling of "random-size-8-uniform-(1)", manually filter out bad data for high precision:...
-                # if (setting_name == "random-size-8-uniform-(1)"):
-                #     if policy_name in ["whittle", "lppriority"]:
-                #         show_until = bisect.bisect_left(Ns_cur_sorted, 6000)
-                #         Ns_cur_sorted = Ns_cur_sorted[0:show_until]
-                #         avg_rewards_cur_sorted = avg_rewards_cur_sorted[0:show_until]
-                #         yerrs_cur_sorted = yerrs_cur_sorted[0:show_until]
+                ## special handling: manually filter out large-N data that is too noisy
+                ## to be reliable; configured by hide_above_N / hide_above_N_modes above
+                if (mode in hide_above_N_modes) and (setting_name in hide_above_N):
+                    hidden_policies, N_cutoff = hide_above_N[setting_name]
+                    if policy_name in hidden_policies:
+                        show_until = bisect.bisect_right(Ns_cur_sorted, N_cutoff)
+                        print("hiding {} points with N>{} for {} {}".format(
+                            len(Ns_cur_sorted) - show_until, N_cutoff, setting_name, policy_name))
+                        Ns_cur_sorted = Ns_cur_sorted[0:show_until]
+                        avg_rewards_cur_sorted = avg_rewards_cur_sorted[0:show_until]
+                        yerrs_cur_sorted = yerrs_cur_sorted[0:show_until]
                     # for j, N in enumerate(Ns_cur_sorted):
                     #     if policy_name in ["whittle", "lppriority"] and (N>=6000):
                             # avg_rewards_cur_sorted[j] = upper_bound
@@ -603,37 +679,35 @@ def figure_from_multiple_files_flexible_N(note=None):
                         raise NotImplementedError
                 # print("{} {}, yerrs/upper_bound = {}".format(setting_name, policy_name, yerrs_cur_sorted / upper_bound))
                 # print("{} {}, relative error = {}".format(setting_name, policy_name, yerrs_cur_sorted / np.clip(upper_bound - avg_rewards_cur_sorted, 0, None) / np.log(10)))
-            plt.xlabel("N (x{})".format(N_tick_ratio), fontsize=20)
-        plt.xticks(ticks=tick_locs, labels=tick_labels, fontsize=20)
+            plt.xlabel("N (x{})".format(N_tick_ratio), fontsize=label_font_size)
+        plt.xticks(ticks=tick_locs, labels=tick_labels, fontsize=tick_font_size)
         if mode == "opt-ratio":
-            plt.ylabel("Optimality ratio", fontsize=20)
+            plt.ylabel("Optimality ratio", fontsize=label_font_size)
         elif mode == "total-opt-gap-ratio":
-            plt.ylabel("Total optimality gap ratio", fontsize=20)
+            plt.ylabel("Total optimality gap ratio", fontsize=label_font_size)
         elif mode == "log-opt-gap-ratio":
-            plt.ylabel("Log optimality gap ratio", fontsize=20)
+            plt.ylabel("Log optimality gap ratio", fontsize=label_font_size)
         else:
             raise NotImplementedError
-        plt.yticks(fontsize=20)
+        plt.yticks(fontsize=tick_font_size)
         plt.tight_layout()
-        plt.grid()
-        if (setting_name == "random-size-8-uniform-(1)") and (mode == "log-opt-gap-ratio"):
-            pass # plt.legend(fontsize=14, loc="center right")
-        elif not legend_on:
-            pass
-        else:
-            plt.legend(fontsize=20)
+        plt.grid(True) # bare plt.grid() toggles rather than enables
+        # previously: random-size-8-uniform-(1) in log-opt-gap-ratio mode used
+        # plt.legend(fontsize=14, loc="center right")
+        if (mode == legend_mode) and (setting_name in legend_settings):
+            plt.legend(fontsize=legend_font_size, loc=legend_loc, **legend_kwargs)
         if mode == "opt-ratio":
             # plt.savefig("figs3/{}-N{}-{}-{}.pdf".format(setting_name, Ns[0], Ns[-1], init_method))
-            plt.savefig("figs3/{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
-            plt.savefig("formal_figs_exponential/{}.png".format(setting_name))
+            plt.savefig("figs3/{}-N{}-{}-{}.pdf".format(setting_name, N_range[0], N_range[1], init_method))
+            plt.savefig("formal_figs_exponential/{}.pdf".format(setting_name))
         elif mode == "total-opt-gap-ratio":
             plt.ylim((-0.06*max_value_for_ylim, max_value_for_ylim*1.05))
-            plt.savefig("figs3/total-gap-ratio-{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
-            plt.savefig("formal_figs_exponential/total-gap-ratio-{}.png".format(setting_name))
+            plt.savefig("figs3/total-gap-ratio-{}-N{}-{}-{}.pdf".format(setting_name, N_range[0], N_range[1], init_method))
+            plt.savefig("formal_figs_exponential/total-gap-ratio-{}.pdf".format(setting_name))
         elif mode == "log-opt-gap-ratio":
             plt.ylim((np.log10(truncate_level)+0.1, None))
-            plt.savefig("figs3/log-gap-ratio-{}-N{}-{}-{}.png".format(setting_name, N_range[0], N_range[1], init_method))
-            plt.savefig("formal_figs_exponential/log-gap-ratio-{}.png".format(setting_name))
+            plt.savefig("figs3/log-gap-ratio-{}-N{}-{}-{}.pdf".format(setting_name, N_range[0], N_range[1], init_method))
+            plt.savefig("formal_figs_exponential/log-gap-ratio-{}.pdf".format(setting_name))
         else:
             raise NotImplementedError
         plt.show()
@@ -643,4 +717,4 @@ def figure_from_multiple_files_flexible_N(note=None):
 if __name__ == "__main__":
     # Run this function to plot figures;
     # Modify the code inside the function to change the printing options
-    figure_from_multiple_files()
+    figure_from_multiple_files_flexible_N()
